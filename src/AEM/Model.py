@@ -59,11 +59,11 @@ class AttentionLayer(nn.Module):
 
 
 class AEM(nn.Module):
-    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim):
+    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim, regularization):
         super().__init__()
         self.word_embedding_layer = nn.Embedding(word_num, embedding_size)
         self.item_embedding_layer = nn.Embedding(item_num + 1, embedding_size, padding_idx=item_num)
-        self.attention_layer = AttentionLayer(embedding_size, attention_hidden_dim, self.__name__)
+        self.attention_layer = AttentionLayer(embedding_size, attention_hidden_dim, self.__class__.__name__)
 
     def reset_parameters(self):
         self.word_embedding_layer.reset_parameters()
@@ -91,8 +91,25 @@ class AEM(nn.Module):
         neg_review_words
             (batch, k)
         """
+        item_embeddings = self.item_embedding_layer(items)
         if mode == 'output_embedding':
-            item_embeddings = self.item_embedding_layer(items)
+            return item_embeddings
+        user_bought_embeddings = self.item_embedding_layer(user_bought_items)
+        query_embeddings = torch.mean(self.word_embedding_layer(query_words), dim=1)
+        query_embeddings = torch.tanh(self.query_projection(query_embeddings))
+        user_embeddings = self.attention_layer(user_bought_embeddings, query_embeddings)
+
+        if mode == 'test':
+            personalized_model = query_embeddings + user_embeddings
+            return personalized_model, item_embeddings
+
+        if mode == 'train':
+            neg_item_embeddings = self.entity_embedding_layer(neg_items)
+            search_loss = self.search_loss(user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings)
+
+            user_word_loss = self.nce_loss(review_words, neg_review_words, users)
+            item_word_loss = self.nce_loss(review_words, neg_review_words, items)
+            regularization_loss = self.regularization_loss()
 
 
 class ZAM(AEM):

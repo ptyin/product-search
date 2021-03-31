@@ -3,30 +3,11 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+from common.metrics import hit, mrr, ndcg
 from .AmazonDataset import AmazonDataset
 
-def mrr(gt_item, pred_items):
-    if gt_item in pred_items:
-        index = pred_items.index(gt_item)
-        return np.reciprocal(float(index + 1))
-    else:
-        return 0
 
-
-def hit(gt_item, pred_items):
-    if gt_item in pred_items:
-        return 1
-    return 0
-
-
-def ndcg(gt_item, pred_items):
-    if gt_item in pred_items:
-        index = pred_items.index(gt_item)
-        return np.reciprocal(np.log2(index + 2))
-    return 0
-
-
-def metrics(meta, test_dataset, test_loader, top_k, criterion):
+def evaluate(meta, test_dataset, test_loader, top_k, criterion):
     Mrr, Hr, Ndcg = [], [], []
     loss = 0  # No effect, ignore this line
     for _, (user_reviews_words,
@@ -37,15 +18,15 @@ def metrics(meta, test_dataset, test_loader, top_k, criterion):
 
         # ---------Local Update---------
         learner = meta.clone(allow_nograd=True)
-        learner.module.set_local()
-        for i in range(len(support_item_reviews_words)):
-            # ---------Fast Adaptation---------
-
-            pred, pos, neg = learner(user_reviews_words,
-                                     support_item_reviews_words[i],
-                                     support_queries[i], 'train', support_negative_reviews_words[i])
-            loss = criterion(pred, pos, neg)
-            learner.adapt(loss)
+        # learner.module.set_local()
+        # for i in range(len(support_item_reviews_words)):
+        #     # ---------Fast Adaptation---------
+        #
+        #     pred, pos, neg = learner(user_reviews_words,
+        #                              support_item_reviews_words[i],
+        #                              support_queries[i], 'train', support_negative_reviews_words[i])
+        #     loss = criterion(pred, pos, neg)
+        #     learner.adapt(loss)
 
         # ---------Test---------
         assert len(query_item_reviews_words) == 1
@@ -54,7 +35,7 @@ def metrics(meta, test_dataset, test_loader, top_k, criterion):
                             query_queries[0], 'test')
         candidates_reviews_words = test_dataset.neg_candidates(query_item_asin[0])
 
-        candidates = learner(None, candidates_reviews_words, query_queries[0].repeat(99, len(query_queries[0])),
+        candidates = learner(None, candidates_reviews_words, query_queries[0].repeat(99, 1),
                              'output_embedding')
 
         candidates = torch.cat([pos, candidates], dim=0)

@@ -7,22 +7,18 @@ import torch
 from torch.utils.data import DataLoader
 from torch import nn
 
+from common.data_preparation import parser_add_data_arguments, data_preparation
+from common.metrics import display
 from .AmazonDataset import AmazonDataset
 from .Model import Model
-from .evaluate import metrics
+from .evaluate import evaluate
 
 
 # if __name__ == '__main__':
 def run():
     torch.backends.cudnn.enabled = True
     parser = ArgumentParser()
-    # ------------------------------------Dataset Parameters------------------------------------
-    parser.add_argument('--dataset',
-                        default='Musical_Instruments',
-                        help='name of the dataset')
-    parser.add_argument('--processed_path',
-                        default='/disk/yxk/processed/cold_start/ordinary/Musical_Instruments/',
-                        help="preprocessed path of the raw data")
+    parser_add_data_arguments(parser)
     # ------------------------------------Experiment Setup------------------------------------
     parser.add_argument('--device',
                         default='0',
@@ -59,23 +55,7 @@ def run():
     # ------------------------------------Data Preparation------------------------------------
     config = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
-
-    train_path = os.path.join(config.processed_path, "{}_train.csv".format(config.dataset))
-    test_path = os.path.join(config.processed_path, "{}_test.csv".format(config.dataset))
-    full_path = os.path.join(config.processed_path, "{}_full.csv".format(config.dataset))
-
-    query_path = os.path.join(config.processed_path, '{}_query.json'.format(config.dataset))
-    asin_sample_path = config.processed_path + '{}_asin_sample.json'.format(config.dataset)
-    word_dict_path = os.path.join(config.processed_path, '{}_word_dict.json'.format(config.dataset))
-
-    query_dict = json.load(open(query_path, 'r'))
-    asin_dict = json.load(open(asin_sample_path, 'r'))
-    word_dict = json.load(open(word_dict_path, 'r'))
-
-    train_df = pd.read_csv(train_path)
-    test_df = pd.read_csv(test_path)
-    full_df = pd.read_csv(full_path)
-
+    train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
     users, item_map, query_map, graph = AmazonDataset.construct_graph(full_df, len(word_dict) + 1)
     # graph = graph.to('cuda:{}'.format(config.device))
     graph = graph.to('cuda')
@@ -111,9 +91,5 @@ def run():
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = metrics(model, test_dataset, test_loader, 20)
-        print(
-            "Running Epoch {:03d}/{:03d}".format(epoch + 1, config.epochs),
-            "loss:{:.3f}".format(float(loss)),
-            "Mrr {:.3f}, Hr {:.3f}, Ndcg {:.3f}".format(Mrr, Hr, Ndcg),
-            "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)))
+        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+        display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)

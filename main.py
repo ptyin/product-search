@@ -10,5 +10,5 @@ if __name__ == '__main__':
         eval(run_str)
     else:
         # run_graph_search()
-        # run_meta_search()
-        run_hem()
+        run_meta_search()
+        # run_hem()

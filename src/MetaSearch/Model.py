@@ -117,6 +117,12 @@ class Model(nn.Module):
         doc_embedding = self.doc_embedding_layer(word_embedding)
         return doc_embedding
 
+    def regularization_term(self):
+        norm = 0
+        for para in self.parameters():
+            norm += para.norm()
+        return norm
+
     def forward(self,
                 user_reviews_words: torch.LongTensor, item_reviews_words: torch.LongTensor,
                 query: torch.LongTensor,

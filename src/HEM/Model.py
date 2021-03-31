@@ -92,9 +92,8 @@ class Model(nn.Module):
             neg_item_embeddings = self.entity_embedding_layer(neg_items)
             search_loss = self.search_loss(user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings)
 
-            user_word_loss = self.nce_loss(review_words, neg_review_words, users)
             item_word_loss = self.nce_loss(review_words, neg_review_words, items)
             regularization_loss = self.regularization_loss()
-            return (user_word_loss + item_word_loss + search_loss).mean(dim=0) + regularization_loss
+            return (item_word_loss + search_loss).mean(dim=0) + regularization_loss
         else:
             raise NotImplementedError

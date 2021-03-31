@@ -9,30 +9,25 @@ from torch import nn, optim
 
 import learn2learn as l2l
 
-
+from common.metrics import display
+from common.data_preparation import parser_add_data_arguments, data_preparation
 from .AmazonDataset import AmazonDataset
 from .AmazonDataset import collate_fn
 from .Model import Model
-from .evaluate import metrics
+from .evaluate import evaluate
 
 
 # if __name__ == '__main__':
 def run():
     torch.backends.cudnn.enabled = True
     parser = ArgumentParser()
-    # ------------------------------------Dataset Parameters------------------------------------
-    parser.add_argument('--dataset',
-                        default='Automotive',
-                        help='name of the dataset')
-    parser.add_argument('--processed_path',
-                        default='/disk/yxk/processed/cold_start/ordinary/Automotive/',
-                        help="preprocessed path of the raw data")
+    parser_add_data_arguments(parser)
     # ------------------------------------Experiment Setup------------------------------------
     parser.add_argument('--device',
                         default='0',
                         help="using device")
     parser.add_argument('--epochs',
-                        default=20,
+                        default=10,
                         type=int,
                         help="training epochs")
     parser.add_argument('--fast_lr',
@@ -58,23 +53,14 @@ def run():
                         default=1.,
                         type=float,
                         help="Margin Loss margin")
-
+    parser.add_argument('--regularization',
+                        default=0.0001,
+                        type=float,
+                        help='regularization factor')
     # ------------------------------------Data Preparation------------------------------------
     config = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
-
-    train_path = os.path.join(config.processed_path, "{}_train.csv".format(config.dataset))
-    test_path = os.path.join(config.processed_path, "{}_test.csv".format(config.dataset))
-
-    asin_sample_path = config.processed_path + '{}_asin_sample.json'.format(config.dataset)
-    word_dict_path = os.path.join(config.processed_path, '{}_word_dict.json'.format(config.dataset))
-
-    asin_dict = json.load(open(asin_sample_path, 'r'))
-    word_dict = json.load(open(word_dict_path, 'r'))
-
-    train_df = pd.read_csv(train_path)
-    test_df = pd.read_csv(test_path)
-    full_df: pd.DataFrame = pd.concat([train_df, test_df], ignore_index=True)
+    train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
 
     init = AmazonDataset.init(full_df)
 
@@ -90,23 +76,26 @@ def run():
     # valid_loader = DataLoader(valid_dataset, batch_size=config['dataset']['batch_size'], shuffle=False, num_workers=0)
     test_loader = DataLoader(test_dataset, batch_size=1, shuffle=False, num_workers=0,
                              collate_fn=collate_fn)
-
     # ------------------------------------Model Construction------------------------------------
     # word_dict starts from 1
     model = Model(len(word_dict)+1, config.embedding_size, config.attention_hidden_dim)
     model = model.cuda()
     meta = l2l.algorithms.MAML(model, lr=config.fast_lr)
 
-    criterion = nn.TripletMarginLoss(margin=config.margin)
+    criterion = nn.TripletMarginLoss(margin=config.margin, reduction='mean')
     # criterion = nn.MSELoss()
     optimizer = optim.Adagrad(model.parameters(), lr=config.meta_lr)
 
     # ------------------------------------Train------------------------------------
     step = 0
     loss = torch.tensor(0.).cuda()
+    Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
+    display(0, config.epochs, loss, Hr, Mrr, Ndcg, time.time())
+
     for epoch in range(config.epochs):
         start_time = time.time()
         epoch_loss = 0
+        step = 0
         for _, (user_reviews_words,
                 support_item_reviews_words, support_queries,
                 support_negative_reviews_words,
@@ -139,16 +128,14 @@ def run():
                 loss += criterion(pred, pos, neg)
 
             loss /= len(query_item_reviews_words)
+            loss += config.regularization * learner.module.regularization_term()
             epoch_loss += loss
+            step += 1
             # print("loss:{:.3f}".format(float(loss)))
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = metrics(meta, test_dataset, test_loader, 20, criterion)
-        print(
-            "Running Epoch {:03d}/{:03d}".format(epoch + 1, config.epochs),
-            "loss:{:.3f}".format(float(epoch_loss / len(train_dataset))),
-            "Mrr {:.3f}, Hr {:.3f}, Ndcg {:.3f}".format(Mrr, Hr, Ndcg),
-            "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)), flush=True)
+        Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
+        display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)
 
