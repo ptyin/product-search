@@ -20,7 +20,7 @@ def evaluate(model, test_dataset, test_loader, top_k):
         candidates = torch.cat(candidates, dim=0).squeeze(dim=1)
 
         # similarity function
-        scores = torch.sum(query.repeat(100, 1) * candidates, dim=1)
+        scores = torch.sum(pred.repeat(100, 1) * candidates, dim=1)
 
         _, ranking_list = scores.sort(dim=-1, descending=False)
         ranking_list = ranking_list.tolist()
