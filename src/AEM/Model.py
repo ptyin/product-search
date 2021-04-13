@@ -59,16 +59,49 @@ class AttentionLayer(nn.Module):
 
 
 class AEM(nn.Module):
-    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim, regularization):
+    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim):
         super().__init__()
-        self.word_embedding_layer = nn.Embedding(word_num, embedding_size)
-        self.item_embedding_layer = nn.Embedding(item_num + 1, embedding_size, padding_idx=item_num)
+        self.word_embedding_layer = nn.Embedding(word_num, embedding_size, padding_idx=0)
+        self.log_sigmoid = nn.LogSigmoid()
+        self.word_bias = nn.Embedding(word_num, 1, padding_idx=0)
+
+        self.item_embedding_layer = nn.Embedding(item_num + 1, embedding_size, padding_idx=0)
         self.attention_layer = AttentionLayer(embedding_size, attention_hidden_dim, self.__class__.__name__)
+
+        self.query_projection = nn.Linear(embedding_size, embedding_size)
 
     def reset_parameters(self):
         self.word_embedding_layer.reset_parameters()
+        self.word_bias.reset_parameters()
         self.item_embedding_layer.reset_parameters()
         self.attention_layer.reset_parameters()
+
+    def nce_loss(self, words, neg_words, item_embeddings):
+        word_embeddings = self.word_embedding_layer(words)
+        # (batch, embedding_size)
+        word_biases = self.word_bias(words).squeeze(dim=1)
+        # (batch, )
+        neg_word_embeddings = self.word_embedding_layer(neg_words)
+        # (batch, k, embedding_size)
+        neg_word_biases = self.word_bias(neg_words).squeeze(dim=2)
+        # (batch, k, )
+
+        pos = -self.log_sigmoid(torch.sum(word_embeddings * item_embeddings) + word_biases)
+        neg = self.log_sigmoid(
+            -torch.einsum('bke,be->bk', neg_word_embeddings, item_embeddings) - neg_word_biases)
+        neg = -torch.sum(neg, dim=1)
+        return pos + neg
+
+    def search_loss(self, user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings):
+        personalized_search_model = query_embeddings + user_embeddings
+        # (batch, embedding_size)
+        pos = -self.log_sigmoid(torch.sum(item_embeddings * personalized_search_model))
+        neg = self.log_sigmoid(-torch.einsum('bke,be->bk', neg_item_embeddings, personalized_search_model))
+        neg = -torch.sum(neg)
+        return pos + neg
+
+    # def regularization_loss(self):
+    #     return self.l2 * (self.word_embedding_layer.weight.norm() + self.item_embedding_layer.weight.norm())
 
     def forward(self, user_bought_items, items, query_words,
                 mode: str,
@@ -102,14 +135,16 @@ class AEM(nn.Module):
         if mode == 'test':
             personalized_model = query_embeddings + user_embeddings
             return personalized_model, item_embeddings
-
-        if mode == 'train':
-            neg_item_embeddings = self.entity_embedding_layer(neg_items)
+        elif mode == 'train':
+            neg_item_embeddings = self.item_embedding_layer(neg_items)
             search_loss = self.search_loss(user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings)
 
-            user_word_loss = self.nce_loss(review_words, neg_review_words, users)
-            item_word_loss = self.nce_loss(review_words, neg_review_words, items)
-            regularization_loss = self.regularization_loss()
+            item_word_loss = self.nce_loss(review_words, neg_review_words, item_embeddings)
+            # regularization_loss = self.regularization_loss()
+            regularization_loss = 0
+            return (item_word_loss + search_loss).mean(dim=0) + regularization_loss
+        else:
+            raise NotImplementedError
 
 
 class ZAM(AEM):

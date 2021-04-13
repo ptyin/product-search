@@ -34,7 +34,7 @@ def run():
                         default=0.5,
                         help='learning rate for fast adaptation')
     parser.add_argument('--meta_lr',
-                        default=0.01,
+                        default=0.001,
                         help='learning rate for meta learning')
     parser.add_argument('--batch_size',
                         default=100,
@@ -54,7 +54,7 @@ def run():
                         type=float,
                         help="Margin Loss margin")
     parser.add_argument('--regularization',
-                        default=0.0001,
+                        default=0.0,
                         type=float,
                         help='regularization factor')
     # ------------------------------------Data Preparation------------------------------------
@@ -62,15 +62,16 @@ def run():
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
 
-    init = AmazonDataset.init(full_df)
+    AmazonDataset.clip_words(full_df)
+    item_reviews_words = AmazonDataset.cluster_item_reviews(full_df)
 
     train_support = full_df[full_df["metaFilter"] == "TrainSupport"]
     train_query = full_df[full_df["metaFilter"] == "TrainQuery"]
     test_support = full_df[full_df["metaFilter"] == "TestSupport"]
     test_query = full_df[full_df["metaFilter"] == "TestQuery"]
 
-    train_dataset = AmazonDataset(train_support, train_query, train_df, asin_dict)
-    test_dataset = AmazonDataset(test_support, test_query, train_df, asin_dict)
+    train_dataset = AmazonDataset(train_support, train_query, item_reviews_words, asin_dict)
+    test_dataset = AmazonDataset(test_support, test_query, item_reviews_words, asin_dict)
     train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=True, num_workers=0,
                               collate_fn=collate_fn)
     # valid_loader = DataLoader(valid_dataset, batch_size=config['dataset']['batch_size'], shuffle=False, num_workers=0)
@@ -89,16 +90,17 @@ def run():
     # ------------------------------------Train------------------------------------
     step = 0
     loss = torch.tensor(0.).cuda()
-    Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
-    display(0, config.epochs, loss, Hr, Mrr, Ndcg, time.time())
+    # Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
+    # display(-1, config.epochs, loss, Hr, Mrr, Ndcg, time.time())
 
     for epoch in range(config.epochs):
         start_time = time.time()
         epoch_loss = 0
         step = 0
-        for _, (user_reviews_words,
+        for _, (support_user_reviews_words,
                 support_item_reviews_words, support_queries,
                 support_negative_reviews_words,
+                query_user_reviews_words,
                 query_item_reviews_words, query_queries,
                 query_negative_reviews_words, _) in enumerate(train_loader):
 
@@ -108,7 +110,7 @@ def run():
             for i in range(len(support_item_reviews_words)):
                 # ---------Fast Adaptation---------
 
-                pred, pos, neg = learner(user_reviews_words[:len(support_item_reviews_words[i])],
+                pred, pos, neg = learner(support_user_reviews_words[:len(support_item_reviews_words[i])],
                                          support_item_reviews_words[i],
                                          support_queries[i], 'train',
                                          support_negative_reviews_words[i])
@@ -121,7 +123,7 @@ def run():
             for i in range(len(query_item_reviews_words)):
                 # ---------Meta Learning---------
 
-                pred, pos, neg = learner(user_reviews_words[:len(query_item_reviews_words[i])],
+                pred, pos, neg = learner(query_user_reviews_words[:len(query_item_reviews_words[i])],
                                          query_item_reviews_words[i],
                                          query_queries[i], 'train',
                                          query_negative_reviews_words[i])
@@ -137,5 +139,5 @@ def run():
             optimizer.step()
 
         Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
-        display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)
+        display(epoch, config.epochs, epoch_loss / step, Hr, Mrr, Ndcg, start_time)
 

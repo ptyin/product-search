@@ -28,27 +28,55 @@ def collate_fn(batch):
     user_reviews_words_list = stack_reviews(user_reviews_words_list)
 
     # pad support_item_reviews_words
+    order, support_item_reviews_words_list = sort_items(support_item_reviews_words_list)
     support_item_reviews_words_list = stack_variant_list(support_item_reviews_words_list, 'review')
+    # sort user_review_words according to length of support items
+    support_user_reviews_words_list = torch.tensor(sort_by_order(user_reviews_words_list.tolist(), order)).cuda()
     # pad support_queries
+    support_queries_list = sort_by_order(support_queries_list, order)
     support_queries_list = stack_variant_list(support_queries_list, 'query')
     # pad support_negative_reviews_words_list
+    support_negative_reviews_words_list = sort_by_order(support_negative_reviews_words_list, order)
     support_negative_reviews_words_list = stack_variant_list(support_negative_reviews_words_list, 'review')
 
     # pad query data
+    order, query_item_reviews_words_list = sort_items(query_item_reviews_words_list)
     query_item_reviews_words_list = stack_variant_list(query_item_reviews_words_list, 'review')
+
+    query_user_reviews_words_list = torch.tensor(sort_by_order(user_reviews_words_list.tolist(), order)).cuda()
+    query_queries_list = sort_by_order(query_queries_list, order)
     query_queries_list = stack_variant_list(query_queries_list, 'query')
+    query_negative_reviews_words_list = sort_by_order(query_negative_reviews_words_list, order)
     query_negative_reviews_words_list = stack_variant_list(query_negative_reviews_words_list, 'review')
 
     # query_item_asin_list = torch.tensor(query_item_asin_list, dtype=torch.long)
 
-    return (user_reviews_words_list,
+    return (support_user_reviews_words_list,
             support_item_reviews_words_list, support_queries_list,
             support_negative_reviews_words_list,
+            query_user_reviews_words_list,
             query_item_reviews_words_list, query_queries_list,
             query_negative_reviews_words_list, query_item_asin_list)
 
 
-def stack_reviews(review_list: list):
+def sort_items(items):
+    items = zip(range(len(items)), items)
+    items = sorted(items, key=lambda x: len(x[1]), reverse=True)
+    order, sorted_items = np.zeros(len(items), dtype=int), []
+    for i, item in enumerate(items):
+        order[item[0]] = i
+        sorted_items.append(item[1])
+    return order, sorted_items
+
+
+def sort_by_order(target_list: list, order: np.ndarray):
+    temp = zip(target_list, order)
+    sorted_list = sorted(temp, key=lambda x: x[1])
+    sorted_list = list(map(lambda x: x[0], sorted_list))
+    return sorted_list
+
+
+def stack_reviews(review_list: list) -> torch.Tensor:
     max_word_num = max(review_list, key=lambda r: r.shape[1]).shape[1]
     # # -----------------Clip Words-----------------
     # max_word_num = max_word_num if max_word_num < 15 else 15
@@ -66,7 +94,7 @@ def stack_reviews(review_list: list):
 
 
 def stack_variant_list(variant_list: list, mode):
-    variant_list = sorted(variant_list, key=lambda items: len(items), reverse=True)
+    # variant_list = sorted(variant_list, key=lambda items: len(items), reverse=True)
     stacked = []
     for i in range(len(variant_list[0])):
         stacked.append([])
@@ -85,7 +113,8 @@ def stack_variant_list(variant_list: list, mode):
 
 
 class AmazonDataset(Dataset):
-    def __init__(self, support_df: DataFrame, query_df: DataFrame, train_df: DataFrame,
+    def __init__(self, support_df: DataFrame, query_df: DataFrame,
+                 item_reviews_words: dict,
                  asin_dict: dict, pre_train=False):
         """
         Parameters
@@ -96,7 +125,6 @@ class AmazonDataset(Dataset):
         """
         self.support_df = support_df
         self.query_df = query_df
-        self.train_df = train_df
         self.support_df = self.support_df.set_index(['userID'])
         self.query_df = self.query_df.set_index(['userID'])
         self.asin_dict = asin_dict
@@ -105,7 +133,7 @@ class AmazonDataset(Dataset):
         self.users = self.support_df.index.unique()
 
         self.user_reviews_words = {}  # record the support user-item reviews
-        self.item_reviews_words = {}  # same as above
+        self.item_reviews_words = item_reviews_words  # same as above
 
         # self.user_reviews_lengths = {}  # record the corresponding lengths of users' reviews
         # self.item_reviews_lengths = {}  # record the corresponding lengths of items' reviews
@@ -116,38 +144,27 @@ class AmazonDataset(Dataset):
         #     for word in review:
         #         self.distribution[word] += 1
         # self.distribution = self.distribution / self.distribution.sum()
-        self.cluster_reviews()
+        self.cluster_user_reviews()
 
-    def cluster_reviews(self):
-
+    def cluster_user_reviews(self):
         users = self.support_df.groupby(by="userID")  # for user, cluster the reviews from support data
-        items = self.train_df.groupby(by="asin")  # for item, cluster all the reviews except for the test query data
+        review_nums: np.ndarray = users.apply(AmazonDataset.compute_max_review_num).to_numpy()
+        mode_review_num = np.argmax(np.bincount(review_nums))
+        max_review_num = mode_review_num
         for user in users:
-            # mask = user[1]['reviewText'].map(lambda review: True if len(eval(review)) > 0 else False)
-            user_reviews_words = user[1]['reviewWords'].map(lambda review: eval(review)).to_numpy(dtype=object)
+            mask = user[1]['reviewWords'].map(lambda review: len(review) > 0)
+            user_reviews_words = user[1]['reviewWords'][mask].to_numpy(dtype=object)
+            # user_reviews_words = user[1]['reviewWords']\
+            #     .map(lambda review: torch.tensor(eval(review), dtype=torch.long)).to_numpy(dtype=object)
             # -----------------Clip Reviews-----------------
-            user_reviews_words = np.random.choice(user_reviews_words, 20, replace=False)\
-                if len(user_reviews_words) > 20 else user_reviews_words
-            # -----------------Clip Words-----------------
-            user_reviews_words = [torch.tensor(np.random.choice(review, 15, replace=False), dtype=torch.long)
-                                  if len(review) > 15 else torch.tensor(review, dtype=torch.long)
-                                  for review in user_reviews_words]
+            user_reviews_words = np.random.choice(user_reviews_words, max_review_num, replace=False)\
+                if len(user_reviews_words) > max_review_num else user_reviews_words
+            # # -----------------Clip Words-----------------
+            # user_reviews_words = [torch.tensor(np.random.choice(review, 50, replace=False), dtype=torch.long)
+            #                       if len(review) > 50 else torch.tensor(review, dtype=torch.long)
+            #                       for review in user_reviews_words]
             # ----------------------------------------------
             self.user_reviews_words[user[0]] = pad_sequence(user_reviews_words, batch_first=True, padding_value=0).cuda()
-
-        for item in items:
-            # mask = item[1]['reviewText'].map(lambda review: True if len(eval(review)) > 0 else False)
-            item_reviews_words = item[1]['reviewWords'].map(lambda review: eval(review)).to_numpy(dtype=object)
-            # -----------------Clip Reviews-----------------
-            item_reviews_words = np.random.choice(item_reviews_words, 20, replace=False)\
-                if len(item_reviews_words) > 20 else item_reviews_words
-            # -----------------Clip Words-----------------
-            item_reviews_words = [torch.tensor(np.random.choice(review, 15, replace=False), dtype=torch.long)
-                                  if len(review) > 15 else torch.tensor(review, dtype=torch.long)
-                                  for review in item_reviews_words]
-            # ----------------------------------------------
-            self.item_reviews_words[item[0]] = pad_sequence(item_reviews_words, batch_first=True, padding_value=0).cuda()
-            # shape: (batch, seq_lens)
 
     def __len__(self):
         return len(self.users)
@@ -216,8 +233,38 @@ class AmazonDataset(Dataset):
         return candidates_reviews_words
 
     @staticmethod
-    def init(full_df: DataFrame):
-        users = full_df['userID'].unique()
-        items = full_df['asin'].unique()
-        # item_map = dict(zip(map(lambda item: item[0], items), range(len(items))))
-        return {'users': users, 'items': items}
+    def clip_words(full_df: DataFrame):
+        def clip(review):
+            review = eval(review)
+            max_word_num = 15
+            if len(review) > max_word_num:
+                return torch.tensor(np.random.choice(review, max_word_num, replace=False), dtype=torch.long)
+            else:
+                return torch.tensor(review, dtype=torch.long)
+        full_df['reviewWords'] = full_df['reviewWords'].map(clip)
+
+    @staticmethod
+    def compute_max_review_num(group: DataFrame):
+        return group['reviewWords'].map(lambda review: len(review) > 0).to_numpy(dtype=np.bool).sum()
+
+    @staticmethod
+    def cluster_item_reviews(full_df: DataFrame):
+        items = full_df.groupby(by="asin")  # for item, cluster all the reviews except for the test query data
+        review_nums: np.ndarray = items.apply(AmazonDataset.compute_max_review_num).to_numpy()
+        mode_review_num = np.argmax(np.bincount(review_nums))
+        max_review_num = mode_review_num
+
+        items_reviews_words = {}
+        for item in items:
+            mask = item[1]['reviewWords'].map(lambda review: len(review) > 0)
+            item_reviews_words = item[1]['reviewWords'][mask].to_numpy(dtype=object)
+            # item_reviews_words = item[1]['reviewWords']\
+            #     .map(lambda review: torch.tensor(eval(review), dtype=torch.long)).to_numpy(dtype=object)
+            # -----------------Clip Reviews-----------------
+            item_reviews_words = np.random.choice(item_reviews_words, max_review_num, replace=False)\
+                if len(item_reviews_words) > max_review_num else item_reviews_words
+            # ----------------------------------------------
+            items_reviews_words[item[0]] = pad_sequence(item_reviews_words, batch_first=True, padding_value=0).cuda()
+            # shape: (batch, seq_lens)
+
+        return items_reviews_words

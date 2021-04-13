@@ -7,9 +7,9 @@ class Model(nn.Module):
         super().__init__()
         self.l2 = l2
 
-        self.word_embedding_layer = nn.Embedding(word_num, embedding_size)
+        self.word_embedding_layer = nn.Embedding(word_num, embedding_size, padding_idx=0)
         self.log_sigmoid = nn.LogSigmoid()
-        self.word_bias = nn.Embedding(word_num, 1)
+        self.word_bias = nn.Embedding(word_num, 1, padding_idx=0)
         self.entity_embedding_layer = nn.Embedding(entity_num, embedding_size)
         # self.entity_bias = nn.Embedding(entity_num, 1)
         self.query_projection = nn.Linear(embedding_size, embedding_size)
@@ -17,8 +17,15 @@ class Model(nn.Module):
         self.personalized_factor = nn.Parameter(torch.tensor([0.0]))
 
     def reset_parameters(self):
-        self.word_embedding_layer.reset_parameters()
-        self.entity_embedding_layer.reset_parameters()
+        nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
+        with torch.no_grad():
+            self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
+        nn.init.zeros_(self.word_bias.weight)
+        with torch.no_grad():
+            self.word_bias.weight[self.word_embedding_layer.padding_idx].fill_(0)
+        # nn.init.normal_(self.entity_embedding_layer.weight, 0, 0.1)
+        nn.init.zeros_(self.entity_embedding_layer.weight)
+
         nn.init.uniform_(self.personalized_factor)
 
         nn.init.xavier_normal_(self.query_projection.weight)

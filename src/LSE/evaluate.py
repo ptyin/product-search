@@ -9,16 +9,15 @@ from .AmazonDataset import AmazonDataset
 def evaluate(model, test_dataset, test_loader, top_k):
     Mrr, Hr, Ndcg = [], [], []
     loss = 0  # No effect, ignore this line
-    for _, (user, item, query) in enumerate(test_loader):
+    for _, (item, query_words) in enumerate(test_loader):
         # ---------Test---------
-        assert len(user) == 1 and len(item) == 1 and len(query) == 1
-        pred, pos = model(user, item, query, 'test')
-        pred = pred.squeeze(dim=1)
+        assert len(item) == 1 and len(query_words) == 1
+        query, pos = model(item, query_words, 'test')
+        query = query.squeeze(dim=1)
         negs = test_dataset.neg_candidates(item)
         candidates = [pos]
-        candidates += [model(user, negs, query, 'output_embedding')]
+        candidates += [model(negs, query_words, 'output_embedding')]
         candidates = torch.cat(candidates, dim=0).squeeze(dim=1)
-
         # similarity function
         scores = torch.sum(query.repeat(100, 1) * candidates, dim=1)
 

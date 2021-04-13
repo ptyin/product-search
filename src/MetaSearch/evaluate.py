@@ -2,7 +2,6 @@ import numpy as np
 
 import torch
 import torch.nn.functional as F
-
 from common.metrics import hit, mrr, ndcg
 from .AmazonDataset import AmazonDataset
 
@@ -10,27 +9,28 @@ from .AmazonDataset import AmazonDataset
 def evaluate(meta, test_dataset, test_loader, top_k, criterion):
     Mrr, Hr, Ndcg = [], [], []
     loss = 0  # No effect, ignore this line
-    for _, (user_reviews_words,
+    for _, (support_user_reviews_words,
             support_item_reviews_words, support_queries,
             support_negative_reviews_words,
+            query_user_reviews_words,
             query_item_reviews_words, query_queries,
             query_negative_reviews_words, query_item_asin) in enumerate(test_loader):
 
         # ---------Local Update---------
         learner = meta.clone(allow_nograd=True)
-        # learner.module.set_local()
-        # for i in range(len(support_item_reviews_words)):
-        #     # ---------Fast Adaptation---------
-        #
-        #     pred, pos, neg = learner(user_reviews_words,
-        #                              support_item_reviews_words[i],
-        #                              support_queries[i], 'train', support_negative_reviews_words[i])
-        #     loss = criterion(pred, pos, neg)
-        #     learner.adapt(loss)
+        learner.module.set_local()
+        for i in range(len(support_item_reviews_words)):
+            # ---------Fast Adaptation---------
+
+            pred, pos, neg = learner(support_user_reviews_words,
+                                     support_item_reviews_words[i],
+                                     support_queries[i], 'train', support_negative_reviews_words[i])
+            loss = criterion(pred, pos, neg)
+            learner.adapt(loss)
 
         # ---------Test---------
         assert len(query_item_reviews_words) == 1
-        pred, pos = learner(user_reviews_words,
+        pred, pos = learner(query_user_reviews_words,
                             query_item_reviews_words[0],
                             query_queries[0], 'test')
         candidates_reviews_words = test_dataset.neg_candidates(query_item_asin[0])

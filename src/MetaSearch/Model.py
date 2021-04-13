@@ -51,11 +51,11 @@ class SelfAttentionLayer(nn.Module):
     def __init__(self, input_dim):
         super(SelfAttentionLayer, self).__init__()
         self.input_dim = input_dim
-        self.reduce_projection = nn.Linear(input_dim, 1)
+        self.reduce_projection = nn.Linear(input_dim, 1, bias=False)
 
     def reset_parameters(self):
         nn.init.xavier_normal_(self.reduce_projection.weight)
-        nn.init.uniform_(self.reduce_projection.bias, 0, 0.01)
+        # nn.init.uniform_(self.reduce_projection.bias, 0, 0.01)
 
     def forward(self, words_embedding: torch.Tensor):
         """
@@ -92,17 +92,22 @@ class Model(nn.Module):
         self.word_embedding_layer = nn.Embedding(self.word_num, self.word_embedding_size, padding_idx=0)
         self.doc_embedding_layer = SelfAttentionLayer(self.word_embedding_size)
         self.attention_layer = AttentionLayer(self.word_embedding_size, self.attention_hidden_dim)
-        self.personalized_factor = nn.Parameter(torch.tensor(0.0))
+        # self.personalized_factor = nn.Parameter(torch.tensor(0.0))
+        self.personalized_factor = 1
 
-        self.global_parameters: list = [self.word_embedding_layer.weight, *self.doc_embedding_layer.parameters()]
+        self.global_parameters: list = [self.word_embedding_layer.weight,
+                                        self.doc_embedding_layer.reduce_projection.weight]
 
         self.reset_parameters()
 
     def reset_parameters(self):
+        # self.word_embedding_layer.reset_parameters()
         nn.init.normal_(self.word_embedding_layer.weight, 0.0, 0.01)
+        with torch.no_grad():
+            self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
         self.doc_embedding_layer.reset_parameters()
         self.attention_layer.reset_parameters()
-        nn.init.uniform_(self.personalized_factor)
+        # nn.init.uniform_(self.personalized_factor)
 
     def set_local(self):
         for global_parameters in self.global_parameters:

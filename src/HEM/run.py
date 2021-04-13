@@ -39,7 +39,7 @@ def run():
                         help='negative sample number')
     # ------------------------------------Model Hyper Parameters------------------------------------
     parser.add_argument('--embedding_size',
-                        default=8,
+                        default=128,
                         type=int,
                         help='embedding size for words and entities')
     parser.add_argument('--regularization',
