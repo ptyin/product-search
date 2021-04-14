@@ -1,4 +1,5 @@
 import sys
+from TranSearchText.run import run as run_tran_search
 from GraphSearch.run import run as run_graph_search
 from MetaSearch.run import run as run_meta_search
 from LSE.run import run as run_lse
@@ -14,10 +15,11 @@ if __name__ == '__main__':
         del sys.argv[1]
         eval(run_str)
     else:
+        run_tran_search()
         # run_graph_search()
         # run_meta_search()
         # run_lse()
-        run_hem()
+        # run_hem()
         # run_aem()
         # run_zam()
 

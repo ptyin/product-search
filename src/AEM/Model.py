@@ -70,10 +70,19 @@ class AEM(nn.Module):
 
         self.query_projection = nn.Linear(embedding_size, embedding_size)
 
+        self.reset_parameters()
+
     def reset_parameters(self):
-        self.word_embedding_layer.reset_parameters()
-        self.word_bias.reset_parameters()
-        self.item_embedding_layer.reset_parameters()
+        nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
+        with torch.no_grad():
+            self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
+        nn.init.zeros_(self.word_bias.weight)
+        with torch.no_grad():
+            self.word_bias.weight[self.word_embedding_layer.padding_idx].fill_(0)
+
+        nn.init.zeros_(self.item_embedding_layer.weight)
+        nn.init.xavier_normal_(self.query_projection.weight)
+        nn.init.uniform_(self.query_projection.bias, 0, 0.1)
         self.attention_layer.reset_parameters()
 
     def nce_loss(self, words, neg_words, item_embeddings):

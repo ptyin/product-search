@@ -14,12 +14,18 @@ class Model(nn.Module):
         self.item_bias = nn.Embedding(item_num, 1)
         self.query_projection = nn.Linear(embedding_size, embedding_size)
 
-        self.personalized_factor = nn.Parameter(torch.tensor([0.0]))
+        self.reset_parameters()
 
     def reset_parameters(self):
         nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
         with torch.no_grad():
             self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
+
+        nn.init.zeros_(self.item_embedding_layer.weight)
+        nn.init.zeros_(self.item_bias.weight)
+
+        nn.init.xavier_normal_(self.query_projection.weight)
+        nn.init.uniform_(self.query_projection.bias, 0, 0.1)
 
     def nce_loss(self, words, items, neg_items):
         word_embeddings = self.__fs(words)

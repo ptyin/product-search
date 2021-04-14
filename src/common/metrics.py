@@ -1,5 +1,8 @@
 import numpy as np
 import time
+from collections import Iterable
+
+best_metric = [0] * 3
 
 
 def mrr(gt_item, pred_items):
@@ -29,4 +32,17 @@ def display(epoch, epoch_num, loss, h_r, m_r_r, n_d_c_g, start_time):
         "loss:{:.3f}".format(float(loss)),
         "Hr {:.3f}, Mrr {:.3f}, Ndcg {:.3f}".format(h_r, m_r_r, n_d_c_g),
         "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)))
+    record((h_r, m_r_r, n_d_c_g))
+    if epoch + 1 == epoch_num:
+        print('-----------Best Result:-----------')
+        print('Hr: {:.3f}, Mrr: {:.3f}, Ndcg: {:.3f}'.format(best_metric[0], best_metric[1], best_metric[2]))
+        print('----------------------------------')
 
+
+def record(metrics: Iterable):
+    """
+    :param metrics: 3 element tuple, HR MRR NDCG respectively
+    :return:
+    """
+    for i, metric in enumerate(metrics):
+        best_metric[i] = metric if metric > best_metric[i] else best_metric[i]

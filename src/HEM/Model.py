@@ -16,6 +16,8 @@ class Model(nn.Module):
 
         self.personalized_factor = nn.Parameter(torch.tensor([0.0]))
 
+        self.reset_parameters()
+
     def reset_parameters(self):
         nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
         with torch.no_grad():
