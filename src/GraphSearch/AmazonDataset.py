@@ -48,7 +48,19 @@ class AmazonDataset(Dataset):
         return candidates
 
     @staticmethod
+    def clip_words(full_df: pd.DataFrame):
+        def clip(review):
+            review = eval(review)
+            max_word_num = 15
+            if len(review) > max_word_num:
+                return np.random.choice(review, max_word_num, replace=False).tolist()
+            else:
+                return review
+        full_df['reviewWords'] = full_df['reviewWords'].map(clip)
+
+    @staticmethod
     def construct_graph(df: pd.DataFrame, word_num: int):
+        # TODO, clip word num and review num
         users = df['userID'].unique()
         items = df['asin'].unique()
         item_map = dict(zip(items, range(len(users), len(users) + len(items))))
@@ -77,7 +89,7 @@ class AmazonDataset(Dataset):
 
                 if len(eval(series['reviewText'])) != 0:
                     # ********word->review********
-                    current_words = eval(series['reviewWords'])
+                    current_words = series['reviewWords']
                     tier1_src_r += current_words
                     tier1_des_r += [current_review_id] * len(current_words)
 

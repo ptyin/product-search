@@ -9,6 +9,12 @@ def parser_add_data_arguments(parser: ArgumentParser):
     # ------------------------------------Dataset Parameters------------------------------------
     parser.add_argument('--dataset',
                         default='Musical_Instruments',
+                        choices=("Automotive",
+                                 "Cell_Phones_and_Accessories",
+                                 "Clothing_Shoes_and_Jewelry",
+                                 "Musical_Instruments",
+                                 "Office_Products",
+                                 "Toys_and_Games"),
                         help='name of the dataset')
     parser.add_argument('--processed_path',
                         default='/disk/yxk/processed/cold_start/ordinary/Musical_Instruments/',

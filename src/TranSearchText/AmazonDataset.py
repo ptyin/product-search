@@ -14,6 +14,7 @@ class PreTrainData(Dataset):
         """ For pretraining the image and review features. """
         self.neg_num = neg_num
         self.asin_dict = asin_dict
+        self.asin_map = dict(zip(asin_dict.keys(), range(len(asin_dict))))
         self.all_items = set(self.asin_dict.keys())
 
         # textual feture data
@@ -102,9 +103,12 @@ class AmazonDataset(PreTrainData):
         return candidates_text
 
     def get_all_test(self):
+        candidates_text = []
         for asin in self.asin_dict:
             sample_text = self.text_vec[asin]
-            yield sample_text, asin
+            candidates_text.append(sample_text)
+        # candidates_text = torch.tensor(candidates_text).cuda()
+        return candidates_text
 
     def __len__(self):
         return len(self.data)

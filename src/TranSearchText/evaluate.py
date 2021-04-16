@@ -12,6 +12,7 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
     loss = 0  # No effect, ignore this line
     model.eval()
     model.is_training = False
+    all_vec = test_dataset.get_all_test()
     for idx, batch_data in enumerate(test_loader):
         # ---------Test---------
         user = batch_data['userID'].cuda()
@@ -23,10 +24,14 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
         pred, pos = model(user, query, pos_text, None, False)
 
         negs = test_dataset.neg_candidates(item)
+        # negs = all_vec.copy()
+        # del negs[test_dataset.asin_map[item]]
+        # negs = torch.tensor(negs).cuda()
+
         candidates = [pos]
         candidates += [model(None, None, negs, None, True)]
         candidates = torch.cat(candidates, dim=0).squeeze(dim=1)
-        scores = torch.pairwise_distance(pred.repeat(100, 1), candidates)
+        scores = torch.pairwise_distance(pred.repeat(len(candidates), 1), candidates)
         _, ranking_list = scores.sort(dim=-1, descending=True)
         ranking_list = ranking_list.tolist()
         top_idx = []

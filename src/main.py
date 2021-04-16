@@ -15,8 +15,8 @@ if __name__ == '__main__':
         del sys.argv[1]
         eval(run_str)
     else:
-        run_tran_search()
-        # run_graph_search()
+        # run_tran_search()
+        run_graph_search()
         # run_meta_search()
         # run_lse()
         # run_hem()

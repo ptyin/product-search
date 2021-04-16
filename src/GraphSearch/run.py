@@ -56,6 +56,8 @@ def run():
     config = parser.parse_args()
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
+    # clip words
+    AmazonDataset.clip_words(full_df)
     users, item_map, query_map, graph = AmazonDataset.construct_graph(full_df, len(word_dict) + 1)
     # graph = graph.to('cuda:{}'.format(config.device))
     graph = graph.to('cuda')

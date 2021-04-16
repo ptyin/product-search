@@ -4,6 +4,10 @@ import dgl
 from dgl import udf
 import dgl.function as fn
 
+from .utils.MultiHeadSelfAttention import MultiHeadSelfAttention
+from .utils.FeedForward import FeedForward
+from .utils.Mean import Mean
+
 
 class SelfAttentionLayer(nn.Module):
     def __init__(self, input_dim):
@@ -27,6 +31,7 @@ class SelfAttentionLayer(nn.Module):
         torch.Tensor
             shape(batch, input_dim)
         """
+        # TODO deprecated, change to multi-head self attention
         original_shape = words_embedding.shape
         # ------------tanh(W*w+b)------------
         reduced_words = torch.tanh(self.reduce_projection(words_embedding))
@@ -41,6 +46,7 @@ class SelfAttentionLayer(nn.Module):
 class Model(nn.Module):
     def __init__(self, graph: dgl.DGLHeteroGraph, word_num, query_num, entity_num,
                  word_embedding_size, entity_embedding_size,
+                 head_num=4,
                  convolution_num=1):
         super().__init__()
         self.graph = graph
@@ -52,8 +58,12 @@ class Model(nn.Module):
         self.entity_embedding_size = entity_embedding_size
         self.convolution_num = convolution_num
 
-        self.self_attention = SelfAttentionLayer(word_embedding_size)
-        # self.query_attended_attention = AttentionLayer(word_embedding_size, attention_hidden_dim)
+        # self.doc_embedding = nn.Sequential(SelfAttentionLayer(word_embedding_size))
+        self.doc_embedding = nn.Sequential(MultiHeadSelfAttention(word_embedding_size, head_num),
+                                           # FeedForward(word_embedding_size, 4 * word_embedding_size),
+                                           Mean(dim=1))
+        # self.self_attention = MultiHeadSelfAttention(word_embedding_size, head_num)
+        # self.feed_forward = FeedForward(word_embedding_size, 4 * word_embedding_size)
 
         self.word_embedding_layer = nn.Embedding(word_num, word_embedding_size, padding_idx=0)
         self.query_embedding_layer = nn.Embedding(query_num, entity_embedding_size)
@@ -75,7 +85,8 @@ class Model(nn.Module):
     def reset_parameters(self):
         self.word_embedding_layer.reset_parameters()
         self.entity_embedding_layer.reset_parameters()
-        self.self_attention.reset_parameters()
+        for layer in self.doc_embedding:
+            layer.reset_parameters()
         # nn.init.uniform_(self.personalized_factor)
 
     def graph_propagation(self):
@@ -86,7 +97,7 @@ class Model(nn.Module):
                 self.graph.update_all(message_func=fn.copy_u('w', 'm'),
                                       reduce_func=lambda reviews:
                                       {
-                                          'h': self.self_attention(reviews.mailbox['m'])
+                                          'h': self.doc_embedding(reviews.mailbox['m'])
                                       },
                                       etype=('word', 'composes', dst))
 
@@ -161,7 +172,7 @@ class Model(nn.Module):
         user_embeddings = self.graph.nodes['entity'].data['e'][users]
         item_embeddings = self.graph.nodes['entity'].data['e'][items]
         query_embeddings = self.word_embedding_layer(query_words)  # shape: (batch, seq, word_embedding_size)
-        query_embeddings = self.self_attention(query_embeddings)  # shape: (batch, embedding_size)
+        query_embeddings = self.doc_embedding(query_embeddings)  # shape: (batch, embedding_size)
         query_embeddings = torch.cat([torch.zeros(batch_size, self.entity_embedding_size).cuda(),
                                       query_embeddings], dim=1)
         personalized_model = user_embeddings + query_embeddings
