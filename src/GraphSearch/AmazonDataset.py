@@ -56,6 +56,7 @@ class AmazonDataset(Dataset):
                 return np.random.choice(review, max_word_num, replace=False).tolist()
             else:
                 return review
+            # return review
         full_df['reviewWords'] = full_df['reviewWords'].map(clip)
 
     @staticmethod

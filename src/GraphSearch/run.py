@@ -31,7 +31,7 @@ def run():
                         default=0.1,
                         help='learning rate for fast adaptation')
     parser.add_argument('--batch_size',
-                        default=1000,
+                        default=256,
                         type=int,
                         help='batch size for training')
     # ------------------------------------Model Hyper Parameters------------------------------------
@@ -47,6 +47,14 @@ def run():
                         default=384,
                         type=int,
                         help="LSTM hidden size")
+    parser.add_argument('--head_num',
+                        default=4,
+                        type=int,
+                        help='the number of heads used in multi head self-attention layer')
+    parser.add_argument('--convolution_num',
+                        default=4,
+                        type=int,
+                        help='the number of convolution layers')
     parser.add_argument('--margin',
                         default=1.,
                         type=float,
@@ -71,27 +79,30 @@ def run():
 
     model = Model(graph, len(word_dict) + 1, len(query_map), len(users) + len(item_map),
                   word_embedding_size=config.word_embedding_size,
-                  entity_embedding_size=config.entity_embedding_size)
+                  entity_embedding_size=config.entity_embedding_size,
+                  head_num=config.head_num,
+                  convolution_num=config.convolution_num)
     model = model.cuda()
     model.init_graph()
 
-    criterion = nn.TripletMarginLoss(margin=config.margin, reduction='sum')
+    # criterion = nn.TripletMarginLoss(margin=config.margin, reduction='mean')
     optimizer = torch.optim.Adagrad(model.parameters(), lr=config.lr)
     # ------------------------------------Train------------------------------------
     loss = 0
-    # Mrr, Hr, Ndcg = metrics(model, test_dataset, test_loader, 20)
+    # Mrr, Hr, Ndcg = metrics(model, test_dataset, test_loader, 10)
 
     for epoch in range(config.epochs):
         start_time = time.time()
         model.train()
         for _, (users, items, negs, query_words) in enumerate(train_loader):
-            pred, pos, neg = model(users, items, query_words, 'train', negs)
-            loss = criterion(pred, pos, neg)
-            print("loss:{:.3f}".format(float(loss)))
+            # pred, pos, neg = model(users, items, query_words, 'train', negs)
+            # loss = criterion(pred, pos, neg)
+            loss = model(users, items, query_words, 'train', negs)
+            # print("loss:{:.3f}".format(float(loss)))
 
             optimizer.zero_grad()
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)

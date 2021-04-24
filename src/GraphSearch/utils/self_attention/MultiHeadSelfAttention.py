@@ -4,16 +4,16 @@ from torch import nn
 
 
 class MultiHeadSelfAttention(nn.Module):
-    def __init__(self, dim, head_num):
+    def __init__(self, input_dim, hidden_dim, head_num):
         super(MultiHeadSelfAttention, self).__init__()
-        self.factor = math.sqrt(dim)
+        self.factor = math.sqrt(input_dim)
         self.head_num = head_num
 
-        self.weight_q = nn.ModuleList([nn.Linear(dim, dim, bias=False) for i in range(head_num)])
-        self.weight_k = nn.ModuleList([nn.Linear(dim, dim, bias=False) for i in range(head_num)])
-        self.weight_v = nn.ModuleList([nn.Linear(dim, dim, bias=False) for i in range(head_num)])
+        self.weight_q = nn.ModuleList([nn.Linear(input_dim, hidden_dim, bias=False) for i in range(head_num)])
+        self.weight_k = nn.ModuleList([nn.Linear(input_dim, hidden_dim, bias=False) for i in range(head_num)])
+        self.weight_v = nn.ModuleList([nn.Linear(input_dim, hidden_dim, bias=False) for i in range(head_num)])
 
-        self.weight_o = nn.Linear(dim * head_num, dim, bias=False)
+        self.weight_o = nn.Linear(hidden_dim * head_num, input_dim, bias=False)
 
     def reset_parameters(self):
         for module_list in [self.weight_q, self.weight_k, self.weight_v]:
@@ -39,6 +39,7 @@ class MultiHeadSelfAttention(nn.Module):
         :param words_embeddings: (batch, seq, dim)
         :return: (batch, seq, dim)
         """
+
         z = []
         for i in range(self.head_num):
             q = self.weight_q[i](words_embeddings)

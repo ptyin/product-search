@@ -59,14 +59,18 @@ class AmazonDataset(Dataset):
         # randomly sample negative ones.
 
         # -----------sample item-----------
-        sample = self.asin_dict[asin]
-        all_sample = sample['positive'] + sample['negative']
-        neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
-        negs = torch.zeros(neg_asin.shape, dtype=torch.long)
-        for i, neg in enumerate(neg_asin):
-            if neg not in self.item_map:
-                neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
-            negs[i] = self.item_map[neg_asin[i]]
+        # sample = self.asin_dict[asin]
+        # all_sample = sample['positive'] + sample['negative']
+        # neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
+        # negs = torch.zeros(neg_asin.shape, dtype=torch.long)
+        # for i, neg in enumerate(neg_asin):
+        #     if neg not in self.item_map:
+        #         neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
+        #     negs[i] = self.item_map[neg_asin[i]]
+
+        item = self.item_map[asin]
+        a = list(range(1, item)) + list(range(item + 1, len(self.item_map) + 1))
+        negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long).cuda()
 
         return negs
 

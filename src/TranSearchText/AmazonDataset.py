@@ -91,7 +91,7 @@ class AmazonDataset(PreTrainData):
 
             else:
                 self.features.append(((self.data['userID'][i], query_vec),
-                                      (self.data['reviewerID'][i], self.data['asin'][i]), self.data['query_'][i]))
+                                      self.data['asin'][i], self.data['query_'][i]))
 
     def neg_candidates(self, asin):
         a = list(set(self.items) - {asin})
@@ -103,12 +103,9 @@ class AmazonDataset(PreTrainData):
         return candidates_text
 
     def get_all_test(self):
-        candidates_text = []
         for asin in self.asin_dict:
             sample_text = self.text_vec[asin]
-            candidates_text.append(sample_text)
-        # candidates_text = torch.tensor(candidates_text).cuda()
-        return candidates_text
+            yield sample_text, asin
 
     def __len__(self):
         return len(self.data)
@@ -130,11 +127,10 @@ class AmazonDataset(PreTrainData):
             sample = {'userID': user_id, 'query': query, 'pos_text': pos_text, 'neg_text': neg_text}
 
         else:
-            reviewer_id = feature_idx[1][0]
-            item = feature_idx[1][1]
+            item = feature_idx[1]
             query_text = feature_idx[2]
 
             sample = {'userID': user_id, 'query': query,
-                      'reviewerID': reviewer_id, 'item': item,
+                      'item': item,
                       'query_text': query_text}
         return sample

@@ -90,7 +90,7 @@ def run():
     # ------------------------------------Train------------------------------------
     step = 0
     loss = torch.tensor(0.).cuda()
-    # Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
+    # Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 10, criterion)
     # display(-1, config.epochs, loss, Hr, Mrr, Ndcg, time.time())
 
     for epoch in range(config.epochs):
@@ -138,6 +138,6 @@ def run():
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 20, criterion)
+        Mrr, Hr, Ndcg = evaluate(meta, test_dataset, test_loader, 10, criterion)
         display(epoch, config.epochs, epoch_loss / step, Hr, Mrr, Ndcg, start_time)
 

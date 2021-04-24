@@ -91,7 +91,7 @@ def run():
     model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=0.0001)
 
-    # Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+    # Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
     # display(-1, config.epochs, 0, Hr, Mrr, Ndcg, time.time())
     loss = 0
     # ------------------------------------Train------------------------------------
@@ -114,7 +114,7 @@ def run():
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)
 
 

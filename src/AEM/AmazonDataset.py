@@ -17,7 +17,7 @@ class AmazonDataset(Dataset):
         self.mode = mode
         self.neg_sample_num = neg_sample_num
 
-        self.corpus = set(range(word_num))
+        self.corpus = list(range(word_num))
         # self.word_distribution = torch.zeros(word_num)
         self.word_distribution = np.zeros(word_num)
         self.data = []
@@ -62,14 +62,18 @@ class AmazonDataset(Dataset):
         # randomly sample negative ones.
 
         # -----------sample item-----------
-        sample = self.asin_dict[asin]
-        all_sample = sample['positive'] + sample['negative']
-        neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
-        negs = torch.zeros(neg_asin.shape, dtype=torch.long)
-        for i, neg in enumerate(neg_asin):
-            if neg not in self.item_map:
-                neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
-            negs[i] = self.item_map[neg_asin[i]]
+        # sample = self.asin_dict[asin]
+        # all_sample = sample['positive'] + sample['negative']
+        # neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
+        # negs = torch.zeros(neg_asin.shape, dtype=torch.long)
+        # for i, neg in enumerate(neg_asin):
+        #     if neg not in self.item_map:
+        #         neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
+        #     negs[i] = self.item_map[neg_asin[i]]
+
+        item = self.item_map[asin]
+        a = list(range(1, item)) + list(range(item + 1, len(self.item_map) + 1))
+        negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long).cuda()
 
         return negs
 
@@ -78,12 +82,17 @@ class AmazonDataset(Dataset):
         :param words: (batch, )
         :return: (batch, k)
         """
-        words = words.tolist()
-        a = list(self.corpus - set(words))
-        distribution = np.delete(self.word_distribution, words)
-        distribution = distribution / distribution.sum(axis=0)
-        negs = np.random.choice(a, len(words) * self.neg_sample_num, replace=True, p=distribution)
+        words = words.cpu()
+        # a = list(self.corpus - set(words))
+
+        temp = self.word_distribution[words]
+        self.word_distribution[words].fill(0)
+
+        distribution = self.word_distribution / self.word_distribution.sum(axis=0)
+        negs = np.random.choice(self.corpus, len(words) * self.neg_sample_num, replace=True, p=distribution)
         negs = torch.tensor(negs.reshape(len(words), self.neg_sample_num), dtype=torch.long).cuda()
+
+        self.word_distribution[words] = temp
         return negs
 
     def neg_candidates(self, item: torch.LongTensor):

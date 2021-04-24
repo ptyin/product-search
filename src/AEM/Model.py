@@ -43,12 +43,17 @@ class AttentionLayer(nn.Module):
        -----------
        torch.Tensor: shape(batch, input_dim)
         """
-        attention_score = self.attention_function(query_embedding, item_embedding)
         if self.model_name == 'AEM':
+            attention_score = self.attention_function(query_embedding, item_embedding)
             weight = torch.softmax(attention_score, dim=1)
         elif self.model_name == 'ZAM':
-            attention_score = torch.exp(attention_score)
-            weight = attention_score / (1 + torch.sum(attention_score, dim=1))
+            item_embedding = torch.cat([torch.zeros(item_embedding.shape[0], 1, self.input_dim).cuda(),
+                                        item_embedding], dim=1)
+            attention_score = self.attention_function(query_embedding, item_embedding)
+            weight = torch.softmax(attention_score, dim=1)
+            # attention_score = torch.exp(attention_score)
+            # weight = attention_score.squeeze(dim=-1) / (1 + torch.sum(attention_score, dim=1))
+            # weight = weight.unsqueeze(dim=-1)
         else:
             raise NotImplementedError
         # shape: (batch, bought_item_num, 1)
@@ -133,8 +138,8 @@ class AEM(nn.Module):
         neg_review_words
             (batch, k)
         """
-        item_embeddings = self.item_embedding_layer(items)
         if mode == 'output_embedding':
+            item_embeddings = self.item_embedding_layer(items)
             return item_embeddings
         user_bought_embeddings = self.item_embedding_layer(user_bought_items)
         query_embeddings = torch.mean(self.word_embedding_layer(query_words), dim=1)
@@ -143,8 +148,9 @@ class AEM(nn.Module):
 
         if mode == 'test':
             personalized_model = query_embeddings + user_embeddings
-            return personalized_model, item_embeddings
+            return personalized_model
         elif mode == 'train':
+            item_embeddings = self.item_embedding_layer(items)
             neg_item_embeddings = self.item_embedding_layer(neg_items)
             search_loss = self.search_loss(user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings)
 

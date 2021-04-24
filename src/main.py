@@ -16,10 +16,10 @@ if __name__ == '__main__':
         eval(run_str)
     else:
         # run_tran_search()
-        run_graph_search()
+        # run_graph_search()
         # run_meta_search()
         # run_lse()
         # run_hem()
         # run_aem()
-        # run_zam()
+        run_zam()
 

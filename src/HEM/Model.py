@@ -12,9 +12,9 @@ class Model(nn.Module):
         self.word_bias = nn.Embedding(word_num, 1, padding_idx=0)
         self.entity_embedding_layer = nn.Embedding(entity_num, embedding_size)
         # self.entity_bias = nn.Embedding(entity_num, 1)
-        self.query_projection = nn.Linear(embedding_size, embedding_size)
+        self.query_projection = nn.Linear(embedding_size, embedding_size, bias=True)
 
-        self.personalized_factor = nn.Parameter(torch.tensor([0.0]))
+        self.personalized_factor = nn.Parameter(torch.tensor([0.5]))
 
         self.reset_parameters()
 
@@ -28,12 +28,10 @@ class Model(nn.Module):
         # nn.init.normal_(self.entity_embedding_layer.weight, 0, 0.1)
         nn.init.zeros_(self.entity_embedding_layer.weight)
 
-        nn.init.uniform_(self.personalized_factor)
-
         nn.init.xavier_normal_(self.query_projection.weight)
         nn.init.uniform_(self.query_projection.bias, 0, 0.1)
 
-    def nce_loss(self, words, neg_words, entities):
+    def nce_loss(self, words, neg_words, entity_embeddings):
         word_embeddings = self.word_embedding_layer(words)
         # (batch, embedding_size)
         word_biases = self.word_bias(words).squeeze(dim=1)
@@ -42,9 +40,6 @@ class Model(nn.Module):
         # (batch, k, embedding_size)
         neg_word_biases = self.word_bias(neg_words).squeeze(dim=2)
         # (batch, k, )
-
-        entity_embeddings = self.entity_embedding_layer(entities)
-        # (batch, embedding_size)
 
         pos = -self.log_sigmoid(torch.sum(word_embeddings * entity_embeddings) + word_biases)
         neg = self.log_sigmoid(-torch.einsum('bke,be->bk', neg_word_embeddings, entity_embeddings) - neg_word_biases)
@@ -88,21 +83,25 @@ class Model(nn.Module):
             item_embeddings = self.entity_embedding_layer(items)
             return item_embeddings
         user_embeddings = self.entity_embedding_layer(users)
-        item_embeddings = self.entity_embedding_layer(items)
+        # item_embeddings = self.entity_embedding_layer(items)
         query_embeddings = torch.mean(self.word_embedding_layer(query_words), dim=1)
         query_embeddings = torch.tanh(self.query_projection(query_embeddings))
         if mode == 'test':
             personalized_model = self.personalized_factor * query_embeddings +\
                                  (1 - self.personalized_factor) * user_embeddings
 
-            return personalized_model, item_embeddings
+            # return personalized_model, item_embeddings
+            return personalized_model
 
         if mode == 'train':
+            item_embeddings = self.entity_embedding_layer(items)
             neg_item_embeddings = self.entity_embedding_layer(neg_items)
+
+            user_word_loss = self.nce_loss(review_words, neg_review_words, user_embeddings)
+            item_word_loss = self.nce_loss(review_words, neg_review_words, item_embeddings)
             search_loss = self.search_loss(user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings)
 
-            item_word_loss = self.nce_loss(review_words, neg_review_words, items)
             regularization_loss = self.regularization_loss()
-            return (item_word_loss + search_loss).mean(dim=0) + regularization_loss
+            return (user_word_loss + item_word_loss + search_loss).mean(dim=0) + regularization_loss
         else:
             raise NotImplementedError

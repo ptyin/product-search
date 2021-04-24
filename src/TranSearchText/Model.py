@@ -59,7 +59,7 @@ class Model(nn.Module):
 
         # user and query embedding
         self.user_embed = nn.Embedding(self.user_size, embed_size)
-        nn.init.xavier_uniform_(self.user_embed.weight)
+        # nn.init.xavier_uniform_(self.user_embed.weight)
         # nn.init.normal_(self.user_embed.weight, 0, 0.1)
 
         self.query_embed = nn.Sequential(
@@ -92,45 +92,40 @@ class Model(nn.Module):
     def forward(self, user, query, pos_text,
                 neg_text, test_first, pos_vis=None, neg_vis=None):
 
-        # positive features attention and concatenation
-        if self.mode == 'vis':
-            pos_vis = self.visual_fc(pos_vis)
-            pos_concat = pos_vis
-        elif self.mode == 'text':
-            pos_text = self.textual_fc(pos_text)
-            pos_concat = pos_text
-        else:
-            pos_vis = self.visual_fc(pos_vis)
-            pos_text = self.textual_fc(pos_text)
-            pos_concat = torch.cat((pos_vis, pos_text), dim=-1)
-        # pos_concat = pos_vis * pos_text
-        pos_item = self.item_fc(pos_concat)
-        pos_item = self.translation(pos_item)
+        def __get_item(vis, text):
+            if self.mode == 'vis':
+                vis = self.visual_fc(vis)
+                concat = vis
+            elif self.mode == 'text':
+                text = self.textual_fc(text)
+                concat = text
+            else:
+                vis = self.visual_fc(vis)
+                text = self.textual_fc(text)
+                concat = torch.cat((vis, text), dim=-1)
+            item = self.item_fc(concat)
+            item = self.translation(item)
+            return item
 
-        if test_first:
-            return pos_item
-
-        user = self.elu(self.user_embed(user))
-        user = self.translation(user)
-        query = self.translation(self.query_embed(query))
-        item_predict = user + query
+        def __get_pred(u, q):
+            u = self.elu(self.user_embed(u))
+            u = self.translation(u)
+            q = self.translation(self.query_embed(q))
+            pred = u + q
+            return pred
 
         if self.is_training:
             # Negative features attention and concatenation.
-            if self.mode == 'vis':
-                neg_vis = self.visual_fc(neg_vis)
-                neg_concat = neg_vis
-            elif self.mode == 'text':
-                neg_text = self.textual_fc(neg_text)
-                neg_concat = neg_text
-            else:
-                neg_vis = self.visual_fc(neg_vis)
-                neg_text = self.textual_fc(neg_text)
-                neg_concat = torch.cat((neg_vis, neg_text), dim=-1)
-            # neg_concat = neg_vis * neg_text
-            neg_items = self.item_fc(neg_concat)
-            neg_items = self.translation(neg_items)
+            item_predict = __get_pred(user, query)
+            pos_item = __get_item(pos_vis, pos_text)
+            neg_items = __get_item(neg_vis, neg_text)
 
             return item_predict, pos_item, neg_items
         else:
-            return item_predict, pos_item
+            if test_first:
+                # positive features attention and concatenation
+                return __get_item(pos_vis, pos_text)
+            else:
+                item_predict = __get_pred(user, query)
+                # return item_predict, pos_item
+                return item_predict

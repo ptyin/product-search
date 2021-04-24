@@ -66,6 +66,7 @@ def run():
     model = model.cuda()
 
     optimizer = torch.optim.Adagrad(model.parameters(), lr=config.lr)
+    # optimizer = torch.optim.Adam(model.parameters(), lr=config.lr)
     # optimizer = torch.optim.SGD(model.parameters(), lr=config.lr)
     # ------------------------------------Train------------------------------------
     loss = 0
@@ -80,7 +81,8 @@ def run():
 
             optimizer.zero_grad()
             loss.backward()
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.)
             optimizer.step()
 
-        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)

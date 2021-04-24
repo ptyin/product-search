@@ -11,7 +11,7 @@ from common.metrics import display
 from common.data_preparation import parser_add_data_arguments, data_preparation
 from .AmazonDataset import AmazonDataset
 from .Model import AEM, ZAM
-from HEM.evaluate import evaluate
+from .evaluate import evaluate
 
 
 def run_aem():
@@ -97,6 +97,6 @@ def run(model_name: str):
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)
 

@@ -75,7 +75,7 @@ def run():
     # optimizer = torch.optim.SGD(model.parameters(), lr=config.lr)
     # ------------------------------------Train------------------------------------
     loss = 0
-    Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+    Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
     display(-1, config.epochs, loss, Hr, Mrr, Ndcg, time.time())
 
     for epoch in range(config.epochs):
@@ -89,5 +89,5 @@ def run():
             loss.backward()
             optimizer.step()
 
-        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 20)
+        Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)

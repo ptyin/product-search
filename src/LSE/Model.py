@@ -71,13 +71,13 @@ class Model(nn.Module):
         if mode == 'output_embedding':
             item_embeddings = self.item_embedding_layer(items)
             return item_embeddings
-        item_embeddings = self.item_embedding_layer(items)
         query_embeddings = self.__fs(query_words)
 
         if mode == 'test':
-            return query_embeddings, item_embeddings
+            return query_embeddings
 
         if mode == 'train':
+            item_embeddings = self.item_embedding_layer(items)
             item_word_loss = self.nce_loss(review_words, items, neg_items)
             regularization_loss = self.regularization_loss()
             loss = item_word_loss.mean(dim=0) + regularization_loss

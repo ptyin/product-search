@@ -17,11 +17,12 @@ def parser_add_data_arguments(parser: ArgumentParser):
                                  "Toys_and_Games"),
                         help='name of the dataset')
     parser.add_argument('--processed_path',
-                        default='/disk/yxk/processed/cold_start/ordinary/Musical_Instruments/',
+                        default='/disk/yxk/processed/cf/ordinary/',
                         help="preprocessed path of the raw data")
 
 
 def data_preparation(config: Namespace):
+    config.processed_path = os.path.join(config.processed_path, config.dataset + '/')
     train_path = os.path.join(config.processed_path, "{}_train.csv".format(config.dataset))
     test_path = os.path.join(config.processed_path, "{}_test.csv".format(config.dataset))
     full_path = os.path.join(config.processed_path, "{}_full.csv".format(config.dataset))
