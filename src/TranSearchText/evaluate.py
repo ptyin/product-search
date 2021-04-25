@@ -11,13 +11,14 @@ def __get_all_item(test_dataset: AmazonDataset, model: Model):
     all_items_embed = []
     all_item_ids = []
     for text, asin in test_dataset.get_all_test():
-        text = torch.cuda.FloatTensor(text).view(1, -1)
-        item_embed = model(None, None, text, None, True)
-
+        text = torch.cuda.FloatTensor(text)
+        all_items_embed.append(text)
+        # item_embed = model(None, None, text, None, True)
         all_item_ids.append(asin)
-        all_items_embed.append(item_embed.view(-1).data.cpu().numpy())
+        # all_items_embed.append(item_embed.view(-1).data.cpu().numpy())
 
-    all_items_embed = torch.cuda.FloatTensor(np.array(all_items_embed))
+    all_items_embed = torch.stack(all_items_embed, dim=0)
+    all_items_embed = model(None, None, all_items_embed, None, True)
     all_items_map = {i: item for i, item in enumerate(all_item_ids)}
 
     return all_items_embed, all_items_map
@@ -37,15 +38,15 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
 
         pred = model(user, query, None, None, False)
         scores = torch.pairwise_distance(pred.repeat(len(all_items_map), 1), all_items_embed)
-        _, ranking_list = scores.sort(dim=-1, descending=True)
+        _, ranking_list = scores.topk(top_k, dim=-1, largest=False, sorted=False)
         ranking_list = [all_items_map[i] for i in ranking_list.tolist()]
-        top_idx = []
-        while len(top_idx) < top_k:
-            candidate_item = ranking_list.pop()
-            top_idx.append(candidate_item)
-        Mrr.append(mrr(item, top_idx))
-        Hr.append(hit(item, top_idx))
-        Ndcg.append(ndcg(item, top_idx))
+        # top_idx = []
+        # while len(top_idx) < top_k:
+        #     candidate_item = ranking_list.pop()
+        #     top_idx.append(candidate_item)
+        Mrr.append(mrr(item, ranking_list))
+        Hr.append(hit(item, ranking_list))
+        Ndcg.append(ndcg(item, ranking_list))
 
         # ------------rank 100------------
         # user = batch_data['userID'].cuda()

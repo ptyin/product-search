@@ -11,7 +11,7 @@ def evaluate(model, test_dataset, test_loader, top_k):
     loss = 0  # No effect, ignore this line
     all_items_ids = torch.tensor(list(range(0, len(test_dataset.item_map))),
                                  dtype=torch.long).cuda()
-    all_items_embed = model(None, all_items_ids, None, mode='output_embedding')
+    all_items_embed = model(all_items_ids, None, mode='output_embedding')
     for _, (item, query) in enumerate(test_loader):
         # ---------Test---------
         assert len(item) == 1 and len(query) == 1

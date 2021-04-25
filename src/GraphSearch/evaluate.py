@@ -22,15 +22,17 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
 
         # scores = torch.pairwise_distance(pred.repeat(len(all_items_ids), 1), all_items_embed)
         scores = torch.sum(pred.repeat(len(all_items_ids), 1) * all_items_embed, dim=1)
-        _, ranking_list = scores.sort(dim=-1, descending=False)
+        # _, ranking_list = scores.sort(dim=-1, descending=False)
+        # ranking_list = ranking_list.tolist()
+        # top_idx = []
+        # while len(top_idx) < top_k:
+        #     candidate_item = ranking_list.pop()
+        #     top_idx.append(candidate_item)
+        _, ranking_list = scores.topk(top_k, dim=-1, largest=True, sorted=False)
         ranking_list = ranking_list.tolist()
-        top_idx = []
-        while len(top_idx) < top_k:
-            candidate_item = ranking_list.pop()
-            top_idx.append(candidate_item)
-        Mrr.append(mrr(item-len(test_dataset.users), top_idx))
-        Hr.append(hit(item-len(test_dataset.users), top_idx))
-        Ndcg.append(ndcg(item-len(test_dataset.users), top_idx))
+        Mrr.append(mrr(item-len(test_dataset.users), ranking_list))
+        Hr.append(hit(item-len(test_dataset.users), ranking_list))
+        Ndcg.append(ndcg(item-len(test_dataset.users), ranking_list))
 
         # ---------rank 100---------
         # pred, pos = model(user, item, query, 'test')

@@ -77,7 +77,6 @@ class Model(nn.Module):
             return query_embeddings
 
         if mode == 'train':
-            item_embeddings = self.item_embedding_layer(items)
             item_word_loss = self.nce_loss(review_words, items, neg_items)
             regularization_loss = self.regularization_loss()
             loss = item_word_loss.mean(dim=0) + regularization_loss

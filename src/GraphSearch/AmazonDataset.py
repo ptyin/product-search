@@ -53,7 +53,8 @@ class AmazonDataset(Dataset):
             review = eval(review)
             max_word_num = 15
             if len(review) > max_word_num:
-                return np.random.choice(review, max_word_num, replace=False).tolist()
+                # return np.random.choice(review, max_word_num, replace=False).tolist()
+                return review[:max_word_num]
             else:
                 return review
             # return review
@@ -66,6 +67,8 @@ class AmazonDataset(Dataset):
         items = df['asin'].unique()
         item_map = dict(zip(items, range(len(users), len(users) + len(items))))
         query_map = {}
+        entity_review = {}
+        max_review_num = 10
         current_review_id = 0
 
         tier1_src_r, tier1_des_r,  = [], []
@@ -84,30 +87,37 @@ class AmazonDataset(Dataset):
                 current_words = tuple(eval(series['queryWords']))
                 if current_words not in query_map:
                     query_map[current_words] = len(query_map)
+                    tier1_src_q += current_words
+                    tier1_des_q += [query_map[current_words]] * len(current_words)
                 current_query_id = query_map[current_words]
-                tier1_src_q += current_words
-                tier1_des_q += [current_query_id] * len(current_words)
 
                 if len(eval(series['reviewText'])) != 0:
-                    # ********word->review********
                     current_words = series['reviewWords']
-                    tier1_src_r += current_words
-                    tier1_des_r += [current_review_id] * len(current_words)
+                    for entity in (series['userID'], item_map[series['asin']]):
+                        if entity not in entity_review:
+                            entity_review[entity] = [current_review_id]
+                        else:
+                            if len(entity_review[entity]) >= max_review_num:
+                                continue
+                            else:
+                                entity_review[entity].append(current_review_id)
 
-                    # ------------------------Tier 2------------------------
-                    # ********review->entity********
-                    tier2_src += [current_review_id, current_review_id]
-                    tier2_des += [series['userID'], item_map[series['asin']]]
+                        # ********word->review********
+                        tier1_src_r += current_words
+                        tier1_des_r += [current_review_id] * len(current_words)
 
-                    current_review_id += 1
+                        # ------------------------Tier 2------------------------
+                        # ********review->entity********
+                        tier2_src.append(current_review_id)
+                        tier2_des.append(entity)
+
+                        current_review_id += 1
 
                 # ------------------------Tier 3------------------------
                 # ********user<->item********
                 tier3_u.append(series['userID'])
                 tier3_i.append(item_map[series['asin']])
                 e_data.append(current_query_id)
-
-                # current_query_id += 1
 
         graph_data = {('word', 'composes', 'review'): (tier1_src_r, tier1_des_r),
                       ('word', 'composes', 'query'): (tier1_src_q, tier1_des_q),

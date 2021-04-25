@@ -31,7 +31,7 @@ def display(epoch, epoch_num, loss, h_r, m_r_r, n_d_c_g, start_time):
         "Running Epoch {:03d}/{:03d}".format(epoch + 1, epoch_num),
         "loss:{:.3f}".format(float(loss)),
         "Hr {:.3f}, Mrr {:.3f}, Ndcg {:.3f}".format(h_r, m_r_r, n_d_c_g),
-        "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)))
+        "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)), flush=True)
     record((h_r, m_r_r, n_d_c_g))
     if epoch + 1 == epoch_num:
         print('-----------Best Result:-----------')

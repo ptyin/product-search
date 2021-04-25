@@ -69,7 +69,7 @@ class AmazonDataset(Dataset):
         #     negs[i] = self.item_map[neg_asin[i]]
 
         item = self.item_map[asin]
-        a = list(range(1, item)) + list(range(item + 1, len(self.item_map) + 1))
+        a = list(range(0, item)) + list(range(item + 1, len(self.item_map)))
         negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long).cuda()
 
         return negs

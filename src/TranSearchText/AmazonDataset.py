@@ -103,9 +103,13 @@ class AmazonDataset(PreTrainData):
         return candidates_text
 
     def get_all_test(self):
+        # candidates_text = []
         for asin in self.asin_dict:
             sample_text = self.text_vec[asin]
             yield sample_text, asin
+            # candidates_text.append(sample_text)
+        # candidates_text = torch.tensor(candidates_text).cuda()
+        # return candidates_text
 
     def __len__(self):
         return len(self.data)

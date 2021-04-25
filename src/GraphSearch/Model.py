@@ -5,6 +5,7 @@ from dgl import udf
 import dgl.function as fn
 
 from GraphSearch.utils.self_attention.MultiHeadSelfAttention import MultiHeadSelfAttention
+from GraphSearch.utils.self_attention.FeedForward import FeedForward
 from GraphSearch.utils.self_attention.Mean import Mean
 from GraphSearch.utils.experiment.loss import *
 
@@ -61,14 +62,18 @@ class Model(nn.Module):
         # self.doc_embedding = nn.Sequential(SelfAttentionLayer(word_embedding_size))
         self.doc_embedding = nn.Sequential(MultiHeadSelfAttention(input_dim=word_embedding_size,
                                                                   hidden_dim=word_embedding_size // head_num,
+                                                                  # hidden_dim=word_embedding_size,
                                                                   head_num=head_num),
                                            # FeedForward(word_embedding_size, 4 * word_embedding_size),
                                            Mean(dim=1))
-        # self.self_attention = MultiHeadSelfAttention(word_embedding_size, head_num)
-        # self.feed_forward = FeedForward(word_embedding_size, 4 * word_embedding_size)
+        # self.query_translation = nn.Sequential(nn.Linear(word_embedding_size, entity_embedding_size))
+        self.query_translation = nn.Sequential(MultiHeadSelfAttention(input_dim=word_embedding_size,
+                                                                      hidden_dim=word_embedding_size // head_num,
+                                                                      head_num=head_num),
+                                               Mean(dim=1))
 
         self.word_embedding_layer = nn.Embedding(word_num, word_embedding_size, padding_idx=0)
-        self.query_embedding_layer = nn.Embedding(query_num, entity_embedding_size)
+        # self.query_embedding_layer = nn.Embedding(query_num, entity_embedding_size)
         self.entity_embedding_layer = nn.Embedding(entity_num, entity_embedding_size)
         # self.personalized_factor = nn.Parameter(torch.tensor(0.0))
 
@@ -93,21 +98,31 @@ class Model(nn.Module):
         self.entity_embedding_layer.reset_parameters()
         for layer in self.doc_embedding:
             layer.reset_parameters()
+        for layer in self.query_translation:
+            layer.reset_parameters()
+            # if isinstance(layer, nn.Linear):
+            #     nn.init.xavier_normal_(layer.weight)
+
+        # for layer in self.query_embedding:
+        #     layer.reset_parameters()
         # nn.init.uniform_(self.personalized_factor)
 
     def __get_query_embedding(self):
         with self.graph.local_scope():
+
+            def reduce_w_q(queries):
+                query_translation = self.query_translation(queries.mailbox['m'])
+                doc_embedding = self.doc_embedding(queries.mailbox['m'])
+                return {'l': query_translation, 'h': doc_embedding}
+
             self.graph.update_all(message_func=fn.copy_u('w', 'm'),
-                                  reduce_func=lambda reviews:
-                                  {
-                                      'h': self.doc_embedding(reviews.mailbox['m'])
-                                  },
+                                  reduce_func=reduce_w_q,
                                   etype=('word', 'composes', 'query'))
             # words->query Apply Function
-            # query_embeddings = torch.cat([self.graph.nodes['query'].data['l'],
-            #                               self.graph.nodes['query'].data['h']], dim=-1)
-            query_embeddings = torch.cat([torch.zeros(self.query_num, self.entity_embedding_size).cuda(),
+            query_embeddings = torch.cat([self.graph.nodes['query'].data['l'],
                                           self.graph.nodes['query'].data['h']], dim=-1)
+            # query_embeddings = torch.cat([torch.zeros(self.query_num, self.entity_embedding_size).cuda(),
+            #                               self.graph.nodes['query'].data['h']], dim=-1)
         return query_embeddings
 
     def graph_propagation(self):
@@ -188,8 +203,12 @@ class Model(nn.Module):
         batch_size = len(users)
         user_embeddings = self.graph.nodes['entity'].data['e'][users]
         query_embeddings = self.word_embedding_layer(query_words)  # shape: (batch, seq, word_embedding_size)
+        query_translation = self.query_translation(query_embeddings)
         query_embeddings = self.doc_embedding(query_embeddings)  # shape: (batch, embedding_size)
-        query_embeddings = torch.cat([torch.zeros(batch_size, self.entity_embedding_size).cuda(),
+
+        # query_embeddings = torch.cat([torch.zeros(batch_size, self.entity_embedding_size).cuda(),
+        #                               self.review_embedding(query_embeddings)], dim=1)
+        query_embeddings = torch.cat([query_translation,
                                       query_embeddings], dim=1)
         personalized_model = user_embeddings + query_embeddings
 
@@ -197,7 +216,7 @@ class Model(nn.Module):
             item_embeddings = self.graph.nodes['entity'].data['e'][items]
             neg_embeddings = self.graph.nodes['entity'].data['e'][negs]
             # return personalized_model, item_embeddings, neg_embeddings
-            return bpr_loss(personalized_model, item_embeddings, neg_embeddings)
+            return hem_loss(personalized_model, item_embeddings, neg_embeddings)
         elif mode == 'test':
             # return personalized_model, item_embeddings
             return personalized_model

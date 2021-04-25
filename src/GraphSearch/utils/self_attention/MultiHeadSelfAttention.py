@@ -19,6 +19,7 @@ class MultiHeadSelfAttention(nn.Module):
         for module_list in [self.weight_q, self.weight_k, self.weight_v]:
             for layer in module_list:
                 nn.init.xavier_normal_(layer.weight)
+        nn.init.xavier_normal_(self.weight_o.weight)
 
     def __attention_score(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
         """
