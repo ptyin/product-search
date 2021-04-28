@@ -20,13 +20,6 @@ def run():
     parser = ArgumentParser()
     parser_add_data_arguments(parser)
     # ------------------------------------Experiment Setup------------------------------------
-    parser.add_argument('--device',
-                        default='0',
-                        help="using device")
-    parser.add_argument('--epochs',
-                        default=20,
-                        type=int,
-                        help="training epochs")
     parser.add_argument('--lr',
                         default=0.1,
                         help='learning rate for fast adaptation')
@@ -35,6 +28,10 @@ def run():
                         type=int,
                         help='batch size for training')
     # ------------------------------------Model Hyper Parameters------------------------------------
+    parser.add_argument('--embedding_size',
+                        default=0,
+                        type=int,
+                        help="word embedding size")
     parser.add_argument('--word_embedding_size',
                         default=64,
                         type=int,
@@ -62,6 +59,13 @@ def run():
 
     # ------------------------------------Data Preparation------------------------------------
     config = parser.parse_args()
+
+    # -----------Caution!!! For convenience of training-----------
+    if config.embedding_size != 0:
+        config.word_embedding_size = config.embedding_size // 2
+        config.entity_embedding_size = config.embedding_size // 2
+    # ------------------------------------------------------------
+
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
     # clip words

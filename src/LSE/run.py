@@ -19,13 +19,6 @@ def run():
     parser = ArgumentParser()
     parser_add_data_arguments(parser)
     # ------------------------------------Experiment Setup------------------------------------
-    parser.add_argument('--device',
-                        default='0',
-                        help="using device")
-    parser.add_argument('--epochs',
-                        default=20,
-                        type=int,
-                        help="training epochs")
     parser.add_argument('--lr',
                         default=0.1,
                         help='learning rate')

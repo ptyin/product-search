@@ -19,6 +19,14 @@ def parser_add_data_arguments(parser: ArgumentParser):
     parser.add_argument('--processed_path',
                         default='/disk/yxk/processed/cf/ordinary/',
                         help="preprocessed path of the raw data")
+    # ------------------------------------Experiment Setup------------------------------------
+    parser.add_argument('--device',
+                        default='0',
+                        help="using device")
+    parser.add_argument('--epochs',
+                        default=20,
+                        type=int,
+                        help="training epochs")
 
 
 def data_preparation(config: Namespace):

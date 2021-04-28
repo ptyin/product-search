@@ -66,11 +66,13 @@ class Model(nn.Module):
                                                                   head_num=head_num),
                                            # FeedForward(word_embedding_size, 4 * word_embedding_size),
                                            Mean(dim=1))
-        # self.query_translation = nn.Sequential(nn.Linear(word_embedding_size, entity_embedding_size))
-        self.query_translation = nn.Sequential(MultiHeadSelfAttention(input_dim=word_embedding_size,
-                                                                      hidden_dim=word_embedding_size // head_num,
-                                                                      head_num=head_num),
-                                               Mean(dim=1))
+        self.query_translation = nn.Sequential(Mean(dim=1),
+                                               nn.Linear(word_embedding_size, entity_embedding_size),
+                                               nn.ELU())
+        # self.query_translation = nn.Sequential(MultiHeadSelfAttention(input_dim=word_embedding_size,
+        #                                                               hidden_dim=word_embedding_size // head_num,
+        #                                                               head_num=head_num),
+        #                                        Mean(dim=1))
 
         self.word_embedding_layer = nn.Embedding(word_num, word_embedding_size, padding_idx=0)
         # self.query_embedding_layer = nn.Embedding(query_num, entity_embedding_size)
@@ -99,9 +101,10 @@ class Model(nn.Module):
         for layer in self.doc_embedding:
             layer.reset_parameters()
         for layer in self.query_translation:
-            layer.reset_parameters()
-            # if isinstance(layer, nn.Linear):
-            #     nn.init.xavier_normal_(layer.weight)
+            if isinstance(layer, MultiHeadSelfAttention):
+                layer.reset_parameters()
+            elif isinstance(layer, nn.Linear):
+                nn.init.xavier_normal_(layer.weight)
 
         # for layer in self.query_embedding:
         #     layer.reset_parameters()

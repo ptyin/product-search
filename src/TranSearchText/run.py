@@ -20,13 +20,6 @@ def run():
     parser = ArgumentParser()
     parser_add_data_arguments(parser)
     # ------------------------------------Experiment Setup------------------------------------
-    parser.add_argument('--device',
-                        default='0',
-                        help="using device")
-    parser.add_argument('--epochs',
-                        default=20,
-                        type=int,
-                        help="training epochs")
     parser.add_argument('--lr',
                         default=0.001,
                         help='learning rate')
@@ -44,7 +37,7 @@ def run():
                         type=str,
                         help='the model mode')
     parser.add_argument('--embedding_size',
-                        default=32,
+                        default=128,
                         type=int,
                         help='embedding size for words and entities')
     parser.add_argument('--visual_size',
