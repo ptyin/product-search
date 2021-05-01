@@ -1,5 +1,6 @@
 #!/bin/bash
-models=("lse" "hem" "aem" "zam" "tran_search" "graph_search")
+#models=("lse" "hem" "aem" "zam" "tran_search" "graph_search")
+models=("lse" "hem" "aem" "zam" "tran_search")
 datasets=("Automotive" "Cell_Phones_and_Accessories" "Clothing_Shoes_and_Jewelry" "Musical_Instruments" "Office_Products" "Toys_and_Games")
 embedding_size=$1
 device=$2

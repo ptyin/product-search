@@ -96,8 +96,12 @@ class Model(nn.Module):
         #                                                        self.entity_embedding_size).cuda()
 
     def reset_parameters(self):
-        self.word_embedding_layer.reset_parameters()
-        self.entity_embedding_layer.reset_parameters()
+        nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
+        if self.word_embedding_layer.padding_idx is not None:
+            with torch.no_grad():
+                self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
+        nn.init.normal_(self.entity_embedding_layer.weight, 0, 1)
+
         for layer in self.doc_embedding:
             layer.reset_parameters()
         for layer in self.query_translation:
