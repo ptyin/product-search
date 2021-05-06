@@ -40,10 +40,6 @@ def run():
                         default=64,
                         type=int,
                         help="entity embedding size")
-    parser.add_argument('--attention_hidden_dim',
-                        default=384,
-                        type=int,
-                        help="LSTM hidden size")
     parser.add_argument('--head_num',
                         default=4,
                         type=int,
@@ -52,10 +48,6 @@ def run():
                         default=4,
                         type=int,
                         help='the number of convolution layers')
-    parser.add_argument('--margin',
-                        default=1.,
-                        type=float,
-                        help="Margin Loss margin")
 
     # ------------------------------------Data Preparation------------------------------------
     config = parser.parse_args()
@@ -68,6 +60,10 @@ def run():
 
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
+    try:
+        word2vec = torch.load(os.path.join(config.processed_path, '{}_word_matrix.pt'.format(config.dataset)))
+    except FileNotFoundError:
+        word2vec = None
     # clip words
     AmazonDataset.clip_words(full_df)
     users, item_map, query_map, graph = AmazonDataset.construct_graph(full_df, len(word_dict) + 1)
@@ -86,6 +82,7 @@ def run():
                   entity_embedding_size=config.entity_embedding_size,
                   head_num=config.head_num,
                   convolution_num=config.convolution_num)
+    model.apply_word2vec(word2vec)
     model = model.cuda()
     model.init_graph()
 

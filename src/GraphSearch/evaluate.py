@@ -13,6 +13,7 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
                                             len(test_dataset.users) + len(test_dataset.item_map))),
                                  dtype=torch.long).cuda()
     all_items_embed = model(None, all_items_ids, None, mode='output_embedding')
+    model.eval()
     for _, (user, item, neg, query) in enumerate(test_loader):
         # ---------Test---------
         assert len(user) == 1 and len(item) == 1 and len(neg) == 1 and len(query) == 1
