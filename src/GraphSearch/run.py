@@ -27,6 +27,10 @@ def run():
                         default=256,
                         type=int,
                         help='batch size for training')
+    parser.add_argument('--neg_sample_num',
+                        default=5,
+                        type=int,
+                        help='negative sample number')
     # ------------------------------------Model Hyper Parameters------------------------------------
     parser.add_argument('--embedding_size',
                         default=0,
@@ -48,14 +52,18 @@ def run():
                         default=4,
                         type=int,
                         help='the number of convolution layers')
+    parser.add_argument('--regularization',
+                        default=0.001,
+                        type=float,
+                        help='regularization factor')
 
     # ------------------------------------Data Preparation------------------------------------
     config = parser.parse_args()
 
     # -----------Caution!!! For convenience of training-----------
     if config.embedding_size != 0:
-        config.word_embedding_size = config.embedding_size // 2
-        config.entity_embedding_size = config.embedding_size // 2
+        config.word_embedding_size = config.embedding_size
+        config.entity_embedding_size = config.embedding_size
     # ------------------------------------------------------------
 
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
@@ -70,7 +78,7 @@ def run():
     # graph = graph.to('cuda:{}'.format(config.device))
     graph = graph.to('cuda')
 
-    train_dataset = AmazonDataset(train_df, users, item_map, asin_dict)
+    train_dataset = AmazonDataset(train_df, users, item_map, asin_dict, neg_sample_num=config.neg_sample_num)
     test_dataset = AmazonDataset(test_df, users, item_map, asin_dict)
 
     train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=True, num_workers=0,
@@ -81,7 +89,8 @@ def run():
                   word_embedding_size=config.word_embedding_size,
                   entity_embedding_size=config.entity_embedding_size,
                   head_num=config.head_num,
-                  convolution_num=config.convolution_num)
+                  convolution_num=config.convolution_num,
+                  l2=config.regularization)
     model.apply_word2vec(word2vec)
     model = model.cuda()
     model.init_graph()
@@ -95,10 +104,10 @@ def run():
     for epoch in range(config.epochs):
         start_time = time.time()
         model.train()
-        for _, (users, items, negs, query_words) in enumerate(train_loader):
+        for _, (users, items, neg_items, query_words) in enumerate(train_loader):
             # pred, pos, neg = model(users, items, query_words, 'train', negs)
             # loss = criterion(pred, pos, neg)
-            loss = model(users, items, query_words, 'train', negs)
+            loss = model(users, items, query_words, 'train', neg_items)
             # print("loss:{:.3f}".format(float(loss)))
 
             optimizer.zero_grad()

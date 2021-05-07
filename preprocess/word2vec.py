@@ -1,10 +1,12 @@
 import os
+import sys
 import json
 import pandas as pd
 from argparse import ArgumentParser
 from gensim.models import Word2Vec
 import numpy as np
 import torch
+sys.path.append('../')
 from src.common.data_preparation import parser_add_data_arguments
 
 

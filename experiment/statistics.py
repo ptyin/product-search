@@ -8,14 +8,14 @@ def find_best_metrics(path):
     if not os.path.exists(path):
         return None
 
+    data = None
     with open(path, 'r') as file:
         line = file.readline()
-        while line != '-----------Best Result:-----------\n':
-            if line == '':
-                return None
+        while line != '':
+            if line == '-----------Best Result:-----------\n':
+                line = file.readline()
+                data = eval(line.join(['{', '}']))
             line = file.readline()
-        line = file.readline()
-    data = eval(line.join(['{', '}']))
     return data
 
 

@@ -48,7 +48,8 @@ class Model(nn.Module):
     def __init__(self, graph: dgl.DGLHeteroGraph, word_num, query_num, entity_num,
                  word_embedding_size, entity_embedding_size,
                  head_num,
-                 convolution_num):
+                 convolution_num,
+                 l2):
         super().__init__()
         self.graph = graph
         self.word_num = word_num
@@ -58,6 +59,8 @@ class Model(nn.Module):
         self.word_embedding_size = word_embedding_size
         self.entity_embedding_size = entity_embedding_size
         self.convolution_num = convolution_num
+
+        self.l2 = l2
 
         # self.doc_embedding = nn.Sequential(SelfAttentionLayer(word_embedding_size))
         self.doc_embedding = nn.Sequential(MultiHeadSelfAttention(input_dim=word_embedding_size,
@@ -81,15 +84,12 @@ class Model(nn.Module):
                                                nn.Linear(word_embedding_size, entity_embedding_size))
 
         self.word_embedding_layer = nn.Embedding(word_num, word_embedding_size, padding_idx=0)
-        # self.query_embedding_layer = nn.Embedding(query_num, entity_embedding_size)
         self.entity_embedding_layer = nn.Embedding(entity_num, entity_embedding_size)
-        # self.personalized_factor = nn.Parameter(torch.tensor(0.0))
 
         self.reset_parameters()
 
     def init_graph(self):
         self.graph.nodes['word'].data['w'] = self.word_embedding_layer.weight
-        # self.graph.nodes['query'].data['l'] = self.query_embedding_layer.weight
         self.graph.nodes['entity'].data['l'] = self.entity_embedding_layer.weight
         self.graph.nodes['entity'].data['deg_p'] = self.graph.in_degrees(
             etype='profiles').float().unsqueeze(dim=-1).clamp(min=1)
@@ -118,10 +118,6 @@ class Model(nn.Module):
                 elif isinstance(layer, nn.Linear):
                     nn.init.xavier_normal_(layer.weight)
 
-        # for layer in self.query_embedding:
-        #     layer.reset_parameters()
-        # nn.init.uniform_(self.personalized_factor)
-
     def __get_query_embedding(self):
         with self.graph.local_scope():
 
@@ -129,6 +125,7 @@ class Model(nn.Module):
                 query_translation = self.query_translation(queries.mailbox['m'])
                 doc_embedding = self.doc_embedding(queries.mailbox['m'])
                 return {'l': query_translation, 'h': doc_embedding}
+                # return {'l': query_translation}
 
             self.graph.update_all(message_func=fn.copy_u('w', 'm'),
                                   reduce_func=reduce_w_q,
@@ -136,12 +133,10 @@ class Model(nn.Module):
             # words->query Apply Function
             query_embeddings = torch.cat([self.graph.nodes['query'].data['l'],
                                           self.graph.nodes['query'].data['h']], dim=-1)
-            # query_embeddings = torch.cat([torch.zeros(self.query_num, self.entity_embedding_size).cuda(),
-            #                               self.graph.nodes['query'].data['h']], dim=-1)
+            # query_embeddings = self.graph.nodes['query'].data['l']
         return query_embeddings
 
     def graph_propagation(self):
-
         # ---------------Tier 1---------------
         with self.graph.local_scope():
             self.graph.update_all(message_func=fn.copy_u('w', 'm'),
@@ -162,12 +157,11 @@ class Model(nn.Module):
             self.graph.nodes['entity'].data['e_0'] = torch.cat([self.graph.nodes['entity'].data['l'],
                                                                 entity_embeddings], dim=-1)
 
-            def msg_u_i(edges: udf.EdgeBatch):
-                # print(edges.src['e_%d' % k].shape,
-                #       edges.data['q_id'].shape,
-                #       self.graph.nodes['query'].data['e_0'][edges.data['q_id']].shape)
-                q = self.graph.nodes['query'].data['e_0'][edges.data['q_id']]
+            # # shape: (batch, entity_size)
+            # self.graph.nodes['entity'].data['e_0'] = self.graph.nodes['entity'].data['l']
 
+            def msg_u_i(edges: udf.EdgeBatch):
+                q = self.graph.nodes['query'].data['e_0'][edges.data['q_id']]
                 return {'m': edges.src['e_%d' % k] + (q / (edges.src['deg_i'] ** 0.5))}
 
             # ---------------Tier 3---------------
@@ -193,7 +187,16 @@ class Model(nn.Module):
 
         self.graph.nodes['entity'].data['e'] = entity_embeddings
 
-    def forward(self, users, items, query_words, mode='train', negs=None):
+    def regularization_loss(self):
+        l2_norm = 0
+        for weight in self.doc_embedding.parameters():
+            l2_norm += weight.norm()
+        for weight in self.query_translation.parameters():
+            l2_norm += weight.norm()
+        l2_norm += self.word_embedding_layer.weight.norm() + self.entity_embedding_layer.weight.norm()
+        return self.l2 * l2_norm
+
+    def forward(self, users, items, query_words, mode='train', neg_items=None):
         """
         Parameters
         -----
@@ -205,11 +208,12 @@ class Model(nn.Module):
             shape: (batch, seq)
         mode: bool
             one of ['train', 'test', 'output_embedding']
-        negs: torch.LongTensor
-            shape: (batch, )
+        neg_items: torch.LongTensor
+            shape: (batch, k)
         """
         if mode == 'output_embedding':
-            item_embeddings = self.graph.nodes['entity'].data['e'][items]
+            # item_embeddings = self.graph.nodes['entity'].data['e'][items]
+            item_embeddings = self.graph.nodes['entity'].data['e'][items][:, :self.entity_embedding_size]
             return item_embeddings
 
         if mode == 'train':
@@ -218,22 +222,33 @@ class Model(nn.Module):
         user_embeddings = self.graph.nodes['entity'].data['e'][users]
         query_embeddings = self.word_embedding_layer(query_words)  # shape: (batch, seq, word_embedding_size)
         query_translation = self.query_translation(query_embeddings)
-        query_embeddings = self.doc_embedding(query_embeddings)  # shape: (batch, embedding_size)
 
-        # query_embeddings = torch.cat([torch.zeros(batch_size, self.entity_embedding_size).cuda(),
-        #                               self.review_embedding(query_embeddings)], dim=1)
-        query_embeddings = torch.cat([query_translation,
-                                      query_embeddings], dim=1)
-        personalized_model = user_embeddings + query_embeddings
+        personalized_model = user_embeddings[:, :self.entity_embedding_size] + query_translation
+
+        # query_embeddings = self.doc_embedding(query_embeddings)  # shape: (batch, embedding_size)
+        # query_embeddings = torch.cat([query_translation,
+        #                               query_embeddings], dim=1)
+        # personalized_model = user_embeddings + query_embeddings
 
         if mode == 'train':
             item_embeddings = self.graph.nodes['entity'].data['e'][items]
-            neg_embeddings = self.graph.nodes['entity'].data['e'][negs]
-            # return personalized_model, item_embeddings, neg_embeddings
-            return hem_loss(personalized_model, item_embeddings, neg_embeddings)
+            # neg_user_embeddings = self.graph.nodes['entity'].data['e'][neg_users]
+            neg_item_embeddings = self.graph.nodes['entity'].data['e'][neg_items]
+            # return hem_loss(personalized_model, item_embeddings, neg_item_embeddings) + self.regularization_loss()
+
+            search_loss = hem_loss(pred=personalized_model,
+                                   pos=item_embeddings[:, :self.entity_embedding_size],
+                                   negs=neg_item_embeddings[:, :, :self.entity_embedding_size])
+            user_loss = log_loss(pred=user_embeddings[:, :self.entity_embedding_size],
+                                 pos=user_embeddings[:, self.entity_embedding_size:])
+            item_loss = log_loss(pred=item_embeddings[:, :self.entity_embedding_size],
+                                 pos=item_embeddings[:, self.entity_embedding_size:])
+
+            return search_loss + user_loss + item_loss + self.regularization_loss()
+            # return search_loss + self.regularization_loss()
         elif mode == 'test':
-            # return personalized_model, item_embeddings
             return personalized_model
+            # return personalized_model[:, :self.entity_embedding_size]
         else:
             raise NotImplementedError
 

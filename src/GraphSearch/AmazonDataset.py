@@ -10,11 +10,13 @@ import dgl
 
 
 class AmazonDataset(Dataset):
-    def __init__(self, df, users, item_map: dict, asin_dict):
+    def __init__(self, df, users, item_map: dict, asin_dict, neg_sample_num=0):
         self.df = df
         self.users = users
         self.item_map = item_map
         self.asin_dict = asin_dict
+
+        self.neg_sample_num = neg_sample_num
 
     def __len__(self):
         return len(self.df)
@@ -24,23 +26,37 @@ class AmazonDataset(Dataset):
         user = torch.tensor(series['userID'], dtype=torch.long).cuda()
         asin = series['asin']
         item = torch.tensor(self.item_map[asin], dtype=torch.long).cuda()
-        neg = torch.tensor(self.sample_neg(asin), dtype=torch.long).cuda()
+        # negs = torch.tensor(self.sample_neg(asin), dtype=torch.long).cuda()
+        # neg_users = self.sample_neg_users(user).cuda()
+        neg_items = self.sample_neg_items(asin).cuda()
         query_words = torch.tensor(eval(series['queryWords']), dtype=torch.long).cuda()
 
-        return user, item, neg, query_words
+        return user, item, neg_items, query_words
 
-    def sample_neg(self, asin):
+    # def sample_neg_users(self, user):
+    #     a = list(range(0, user)) + list(range(user + 1, len(self.users)))
+    #     negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long)
+    #     return negs
+
+    def sample_neg_items(self, asin):
         """ Take the also_view or buy_after_viewing as negative samples. """
         # We tend to sample negative ones from the also_view and
         # buy_after_viewing items, if don't have enough, we then
         # randomly sample negative ones.
 
-        sample = self.asin_dict[asin]
-        all_sample = sample['positive'] + sample['negative']
-        neg = np.random.choice(all_sample, 1, replace=False, p=sample['prob'])
-        if neg[0] not in self.item_map:
-            neg = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
-        return self.item_map[neg[0]]
+        a = list(range(len(self.users), self.item_map[asin])) + \
+            list(range(self.item_map[asin] + 1, len(self.users) + len(self.item_map)))
+        negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long)
+
+        # sample = self.asin_dict[asin]
+        # all_sample = sample['positive'] + sample['negative']
+        # neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
+        # negs = torch.zeros(neg_asin.shape, dtype=torch.long)
+        # for i, neg in enumerate(neg_asin):
+        #     if neg not in self.item_map:
+        #         neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
+        #     negs[i] = self.item_map[neg_asin[i]]
+        return negs
 
     def neg_candidates(self, item: torch.LongTensor):
         a = list(range(len(self.users), item.item())) + list(range(item.item() + 1, len(self.users) + len(self.item_map)))

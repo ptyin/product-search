@@ -14,9 +14,9 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
                                  dtype=torch.long).cuda()
     all_items_embed = model(None, all_items_ids, None, mode='output_embedding')
     model.eval()
-    for _, (user, item, neg, query) in enumerate(test_loader):
+    for _, (user, item, _, query) in enumerate(test_loader):
         # ---------Test---------
-        assert len(user) == 1 and len(item) == 1 and len(neg) == 1 and len(query) == 1
+        assert len(user) == 1 and len(item) == 1 and len(query) == 1
         # ---------rank all---------
         item = item.cpu()
         pred = model(user, None, query, 'test')
