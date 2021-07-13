@@ -8,7 +8,7 @@ import pandas as pd
 def parser_add_data_arguments(parser: ArgumentParser):
     # ------------------------------------Dataset Parameters------------------------------------
     parser.add_argument('--dataset',
-                        default='Musical_Instruments',
+                        default='Automotive',
                         choices=("Automotive",
                                  "Cell_Phones_and_Accessories",
                                  "Clothing_Shoes_and_Jewelry",
@@ -19,6 +19,16 @@ def parser_add_data_arguments(parser: ArgumentParser):
     parser.add_argument('--processed_path',
                         default='/disk/yxk/processed/cf/ordinary/',
                         help="preprocessed path of the raw data")
+    parser.add_argument('--save_path',
+                        default='/disk/yxk/saved/cf/',
+                        help="preprocessed path of the raw data")
+    parser.add_argument('--save_str',
+                        default='hem',
+                        help='unique string to identify the saved model')
+    # parser.add_argument('--test_mode',
+    #                     default='product_score',
+    #                     choices=('similarity_compute', 'product_score'),
+    #                     help='test mode')
     # ------------------------------------Experiment Setup------------------------------------
     parser.add_argument('--device',
                         default='0',
@@ -27,10 +37,20 @@ def parser_add_data_arguments(parser: ArgumentParser):
                         default=20,
                         type=int,
                         help="training epochs")
+    parser.add_argument('--load',
+                        default=False,
+                        type=bool,
+                        help='whether load from disk or not ')
 
 
 def data_preparation(config: Namespace):
+    os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     config.processed_path = os.path.join(config.processed_path, config.dataset + '/')
+    config.save_path = os.path.join(config.save_path, str(config.embedding_size), config.dataset)
+    if not os.path.exists(config.save_path):
+        os.makedirs(config.save_path)
+    config.save_path = os.path.join(config.save_path, '{}.pt'.format(config.save_str))
+
     # train_path = os.path.join(config.processed_path, "{}_train.csv".format(config.dataset))
     # test_path = os.path.join(config.processed_path, "{}_test.csv".format(config.dataset))
     full_path = os.path.join(config.processed_path, "{}_full.csv".format(config.dataset))

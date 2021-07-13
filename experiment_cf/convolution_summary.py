@@ -48,41 +48,50 @@ def main():
         os.makedirs(save_path)
 
     datasets = ["Automotive",
-                "Cell_Phones_and_Accessories",
-                "Clothing_Shoes_and_Jewelry",
+                # "Cell_Phones_and_Accessories",
+                # "Clothing_Shoes_and_Jewelry",
                 "Musical_Instruments",
                 "Office_Products",
                 "Toys_and_Games"]
-    models = ["lse", "hem", "aem", "zam", "tran_search", "graph_search"]
-    embedding_sizes = [64, 128, 256, 512]
+    # models = ["lse", "hem", "aem", "zam", "tran_search", "graph_search"]
+    convolution_nums = [0, 1, 2, 3, 4, 5]
+    embedding_sizes = [64]
     metrics = ['HR', 'MRR', 'NDCG']
 
     # data = dict(zip(datasets, zip(models, embedding_sizes)))
     data = {}
     default = {'HR': None, 'MRR': None, 'NDCG': None}
-    for dataset, model, embedding_size in itertools.product(datasets, models, embedding_sizes):
+    for dataset, convolution_num, embedding_size in itertools.product(datasets, convolution_nums, embedding_sizes):
         if dataset not in data:
-            data[dataset] = {model: {embedding_size: default}}
-        elif model not in data[dataset]:
-            data[dataset][model] = {embedding_size: default}
-        elif embedding_size not in data[dataset][model]:
-            data[dataset][model][embedding_size] = default
+            data[dataset] = {convolution_num: {embedding_size: default}}
+        elif convolution_num not in data[dataset]:
+            data[dataset][convolution_num] = {embedding_size: default}
+        elif embedding_size not in data[dataset][convolution_num]:
+            data[dataset][convolution_num][embedding_size] = default
         else:
             raise NotImplementedError
 
-    for dataset, model, embedding_size in itertools.product(datasets, models, embedding_sizes):
-        path = os.path.join(log_path, str(embedding_size), dataset, model, 'train_log.txt')
+    for dataset, convolution_num, embedding_size in itertools.product(datasets, convolution_nums, embedding_sizes):
+        # if convolution_num != 4:
+        path = os.path.join(log_path, str(embedding_size), dataset, 'graph_search',
+                            'train_log_{}.txt'.format(convolution_num))
+        # else:
+        #     path = os.path.join(log_path, str(embedding_size), dataset, 'graph_search', 'train_log.txt')
         result = find_best_metrics(path)
-        data[dataset][model][embedding_size] = result if result is not None else default
+        data[dataset][convolution_num][embedding_size] = result if result is not None else default
 
-    a = list(itertools.product(datasets, models))
-    index = pd.MultiIndex.from_tuples(a, names=['dataset', 'model'])
-    b = list(itertools.product(embedding_sizes, metrics))
-    columns = pd.MultiIndex.from_tuples(b, names=['embedding_size', 'metric'])
+    # a = list(itertools.product(datasets, models))
+    # index = pd.MultiIndex.from_tuples(a, names=['dataset', 'model'])
+    # b = list(itertools.product(embedding_sizes, metrics))
+    # columns = pd.MultiIndex.from_tuples(b, names=['embedding_size', 'metric'])
+    a = list(itertools.product(embedding_sizes, convolution_nums))
+    index = pd.MultiIndex.from_tuples(a, names=['embedding_size', 'model'])
+    b = list(itertools.product(datasets, metrics))
+    columns = pd.MultiIndex.from_tuples(b, names=['dataset', 'metric'])
 
-    array = to_numpy(data, [datasets, models, embedding_sizes, metrics], [0, 1], [2, 3])
+    array = to_numpy(data, [datasets, convolution_nums, embedding_sizes, metrics], [2, 1], [0, 3])
     df = pd.DataFrame(array, index=index, columns=columns)
-    save_result(df, os.path.join(save_path, 'log.xlsx'))
+    save_result(df, os.path.join(save_path, 'convolution_summary.xlsx'))
 
 
 if __name__ == '__main__':

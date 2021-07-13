@@ -6,7 +6,7 @@ from torch import nn
 class MultiHeadSelfAttention(nn.Module):
     def __init__(self, input_dim, hidden_dim, head_num):
         super(MultiHeadSelfAttention, self).__init__()
-        self.factor = math.sqrt(hidden_dim)
+        self.factor = math.sqrt(input_dim)
         self.head_num = head_num
 
         self.weight_q = nn.ModuleList([nn.Linear(input_dim, hidden_dim, bias=False) for i in range(head_num)])
@@ -23,22 +23,22 @@ class MultiHeadSelfAttention(nn.Module):
 
     def __attention_score(self, q: torch.Tensor, k: torch.Tensor, v: torch.Tensor):
         """
-        :param q: (batch, seq, dim)
-        :param k: (batch, seq, dim)
-        :param v: (batch, seq, dim)
-        :return: (batch, seq, dim)
+        :param q: (batch, review_num, seq, dim)
+        :param k: (batch, review_num, seq, dim)
+        :param v: (batch, review_num, seq, dim)
+        :return: (batch, review_num, seq, dim)
         """
-        dot_product = q @ k.transpose(1, 2)
+        dot_product = q @ k.transpose(-1, -2)
         scaled_dot_product = dot_product / self.factor
-        weight = torch.softmax(scaled_dot_product, dim=2)
+        weight = torch.softmax(scaled_dot_product, dim=-1)
         # shape: (batch, seq, seq)
         score = weight @ v
         return score
 
     def forward(self, words_embeddings):
         """
-        :param words_embeddings: (batch, seq, dim)
-        :return: (batch, seq, dim)
+        :param words_embeddings: (batch, review_num, seq, dim)
+        :return: (batch, review_num, seq, dim)
         """
 
         z = []
@@ -47,6 +47,6 @@ class MultiHeadSelfAttention(nn.Module):
             k = self.weight_k[i](words_embeddings)
             v = self.weight_v[i](words_embeddings)
             z.append(self.__attention_score(q, k, v))
-        concatenated_z = torch.cat(z, dim=2)
+        concatenated_z = torch.cat(z, dim=-1)
         output = self.weight_o(concatenated_z)
         return output

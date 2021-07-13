@@ -7,13 +7,25 @@ import numpy as np
 
 
 def collate_fn(batch):
+    # (user,
+    #  self.user_reviews_words[user],
+    #
+    #  support_items,
+    #  support_item_reviews_words, support_queries,
+    #  support_negative_items,
+    #  support_negative_reviews_words,
+    #
+    #  query_items,
+    #  query_item_reviews_words, query_queries,
+    #  query_negative_items,
+    #  query_negative_reviews_words, query_item_asin)
     data_list = \
-        (user_reviews_words_list,
-         support_item_reviews_words_list, support_queries_list,
-         support_negative_reviews_words_list,
-         query_item_reviews_words_list, query_queries_list,
-         query_negative_reviews_words_list, query_item_asin_list) = \
-        [], [], [], [], [], [], [], []
+        (user_list, user_reviews_words_list,
+         support_items_list, support_item_reviews_words_list, support_queries_list,
+         support_negative_items_list, support_negative_reviews_words_list,
+         query_items_list, query_item_reviews_words_list, query_queries_list,
+         query_negative_items_list, query_negative_reviews_words_list, query_item_asin_list) = \
+        tuple([] for _ in range(13))
 
     for data in batch:
         # (user_reviews_words,
@@ -26,37 +38,33 @@ def collate_fn(batch):
 
     # pad user_review_words
     user_reviews_words_list = stack_reviews(user_reviews_words_list)
+    
+    def process_half(items_list, item_reviews_words_list, queries_list,
+                     negative_items_list, negative_reviews_words_list):
+        # pad item_reviews_words
+        order, item_reviews_words_list = sort_items(item_reviews_words_list)
+        item_reviews_words_list = stack_variant_list(item_reviews_words_list, 'review')
+        items_list = stack_variant_list(sort_by_order(items_list, order), 'id')
 
-    # pad support_item_reviews_words
-    order, support_item_reviews_words_list = sort_items(support_item_reviews_words_list)
-    support_item_reviews_words_list = stack_variant_list(support_item_reviews_words_list, 'review')
-    # sort user_review_words according to length of support items
-    support_user_reviews_words_list = torch.tensor(sort_by_order(user_reviews_words_list.tolist(), order)).cuda()
-    # pad support_queries
-    support_queries_list = sort_by_order(support_queries_list, order)
-    support_queries_list = stack_variant_list(support_queries_list, 'query')
-    # pad support_negative_reviews_words_list
-    support_negative_reviews_words_list = sort_by_order(support_negative_reviews_words_list, order)
-    support_negative_reviews_words_list = stack_variant_list(support_negative_reviews_words_list, 'review')
+        # sort user_review_words according to length of support items
+        processed_user_reviews_words_list = torch.tensor(sort_by_order(user_reviews_words_list.tolist(), order)).cuda()
+        processed_user_list = torch.tensor(sort_by_order(user_list, order)).cuda()
+        # pad queries
+        queries_list = sort_by_order(queries_list, order)
+        queries_list = stack_variant_list(queries_list, 'query')
+        # pad negative_reviews_words_list
+        negative_reviews_words_list = sort_by_order(negative_reviews_words_list, order)
+        negative_reviews_words_list = stack_variant_list(negative_reviews_words_list, 'review')
+        negative_items_list = stack_variant_list(sort_by_order(negative_items_list, order), 'id')
+        return (processed_user_list, processed_user_reviews_words_list,
+                items_list, item_reviews_words_list, queries_list,
+                negative_items_list, negative_reviews_words_list)
 
-    # pad query data
-    order, query_item_reviews_words_list = sort_items(query_item_reviews_words_list)
-    query_item_reviews_words_list = stack_variant_list(query_item_reviews_words_list, 'review')
-
-    query_user_reviews_words_list = torch.tensor(sort_by_order(user_reviews_words_list.tolist(), order)).cuda()
-    query_queries_list = sort_by_order(query_queries_list, order)
-    query_queries_list = stack_variant_list(query_queries_list, 'query')
-    query_negative_reviews_words_list = sort_by_order(query_negative_reviews_words_list, order)
-    query_negative_reviews_words_list = stack_variant_list(query_negative_reviews_words_list, 'review')
-
-    # query_item_asin_list = torch.tensor(query_item_asin_list, dtype=torch.long)
-
-    return (support_user_reviews_words_list,
-            support_item_reviews_words_list, support_queries_list,
-            support_negative_reviews_words_list,
-            query_user_reviews_words_list,
-            query_item_reviews_words_list, query_queries_list,
-            query_negative_reviews_words_list, query_item_asin_list)
+    return (*process_half(support_items_list, support_item_reviews_words_list, support_queries_list,
+                          support_negative_items_list, support_negative_reviews_words_list),
+            *process_half(query_items_list, query_item_reviews_words_list, query_queries_list,
+                          query_negative_items_list, query_negative_reviews_words_list),
+            query_item_asin_list)
 
 
 def sort_items(items):
@@ -106,6 +114,8 @@ def stack_variant_list(variant_list: list, mode):
             stacked[len(stacked) - 1] = stack_reviews(stacked[len(stacked) - 1])
         elif mode == 'query':
             stacked[len(stacked) - 1] = pad_sequence(stacked[len(stacked) - 1], batch_first=True, padding_value=0)
+        elif mode == 'id':
+            stacked[len(stacked) - 1] = torch.tensor(stacked[len(stacked) - 1], dtype=torch.long).cuda()
         else:
             raise NotImplementedError
     variant_list = stacked
@@ -113,7 +123,9 @@ def stack_variant_list(variant_list: list, mode):
 
 
 class AmazonDataset(Dataset):
-    def __init__(self, support_df: DataFrame, query_df: DataFrame,
+    def __init__(self,
+                 support_df: DataFrame, query_df: DataFrame,
+                 item_map,
                  item_reviews_words: dict,
                  asin_dict: dict, pre_train=False):
         """
@@ -127,6 +139,7 @@ class AmazonDataset(Dataset):
         self.query_df = query_df
         self.support_df = self.support_df.set_index(['userID'])
         self.query_df = self.query_df.set_index(['userID'])
+        self.item_map = item_map
         self.asin_dict = asin_dict
         self.pre_train = pre_train
 
@@ -151,6 +164,7 @@ class AmazonDataset(Dataset):
         review_nums: np.ndarray = users.apply(AmazonDataset.compute_max_review_num).to_numpy()
         mode_review_num = np.argmax(np.bincount(review_nums))
         max_review_num = mode_review_num
+        # max_review_num = 1
         for user in users:
             mask = user[1]['reviewWords'].map(lambda review: len(review) > 0)
             user_reviews_words = user[1]['reviewWords'][mask].to_numpy(dtype=object)
@@ -169,11 +183,12 @@ class AmazonDataset(Dataset):
     def __len__(self):
         return len(self.users)
 
-    def __get_instance(self, asin,
-                       item_reviews_words, negative_reviews_words):
+    def __get_instance(self, asin, items, item_reviews_words, negative_items, negative_reviews_words):
+        items.append(self.item_map[asin])
         item_reviews_words.append(self.item_reviews_words[asin])
-        negative_item = self.sample_neg(asin)
-        negative_reviews_words.append(self.item_reviews_words[negative_item])
+        negative_asin = self.sample_neg(asin)
+        negative_items.append(self.item_map[asin])
+        negative_reviews_words.append(self.item_reviews_words[negative_asin])
 
     def __getitem__(self, index):
         """
@@ -187,50 +202,85 @@ class AmazonDataset(Dataset):
         """
         user = self.users[index]
 
-        (support_item_reviews_words,
-         support_negative_reviews_words) = [], []
+        (support_items,
+         support_item_reviews_words,
+         support_negative_items,
+         support_negative_reviews_words) = [], [], [], []
 
-        (query_item_reviews_words,
-         query_negative_reviews_words) = [], []
+        (query_items,
+         query_item_reviews_words,
+         query_negative_items,
+         query_negative_reviews_words) = [], [], [], []
+        
+        def process_half(df, items, item_reviews_words,
+                         negative_items, negative_reviews_words):
+            pd.Series(df.loc[user, 'asin'], dtype=str).apply(
+                self.__get_instance, args=(items,
+                                           item_reviews_words,
+                                           negative_items,
+                                           negative_reviews_words))
+            # items = torch.tensor(items, dtype=torch.long)
+            # negative_items = torch.tensor(negative_items, dtype=torch.long)
 
-        pd.Series(self.support_df.loc[user, 'asin'], dtype=str).apply(
-            self.__get_instance, args=(support_item_reviews_words, support_negative_reviews_words))
-        support_queries = pd.Series(self.support_df.loc[user, 'queryWords'], dtype=str).map(
-            lambda query: torch.tensor(eval(query), dtype=torch.long).cuda()).tolist()
+            queries = pd.Series(df.loc[user, 'queryWords'], dtype=str).map(
+                lambda query: torch.tensor(eval(query), dtype=torch.long).cuda()).tolist()
+            return items, item_reviews_words, negative_items, negative_reviews_words, queries
+
+        (support_items, support_item_reviews_words,
+         support_negative_items, support_negative_reviews_words,
+         support_queries) = process_half(self.support_df, support_items, support_item_reviews_words,
+                                         support_negative_items, support_negative_reviews_words)
+
+        (query_items, query_item_reviews_words,
+         query_negative_items, query_negative_reviews_words,
+         query_queries) = process_half(self.query_df, query_items, query_item_reviews_words,
+                                       query_negative_items, query_negative_reviews_words)
 
         query_item_asin = self.query_df.loc[user, 'asin']  # useful iff TestQuery
-        pd.Series(self.query_df.loc[user, 'asin'], dtype=str).apply(
-            self.__get_instance, args=(query_item_reviews_words,
-                                       query_negative_reviews_words))
-        query_queries = pd.Series(self.query_df.loc[user, 'queryWords'], dtype=str).map(
-            lambda query: torch.tensor(eval(query), dtype=torch.long).cuda()).tolist()
 
-        return (self.user_reviews_words[user],
+        return (user,
+                self.user_reviews_words[user],
+
+                support_items,
                 support_item_reviews_words, support_queries,
+                support_negative_items,
                 support_negative_reviews_words,
+
+                query_items,
                 query_item_reviews_words, query_queries,
+                query_negative_items,
                 query_negative_reviews_words, query_item_asin)
 
     def sample_neg(self, item):
-        """ Take the also_view or buy_after_viewing as negative samples. """
-        # We tend to sample negative ones from the also_view and
-        # buy_after_viewing items, if don't have enough, we then
-        # randomly sample negative ones.
 
-        sample = self.asin_dict[item]
-        all_sample = sample['positive'] + sample['negative']
-        neg = np.random.choice(all_sample, 1, replace=False, p=sample['prob'])
-        if neg[0] not in self.item_reviews_words:
-            neg = np.random.choice(list(self.item_reviews_words.keys()), 1, replace=False)
-        return neg[0]
-
-    def neg_candidates(self, item):
-        """random select 99 candidates to participate test evaluation"""
         a = list(self.item_reviews_words.keys() - {item, })
-        candidates = np.random.choice(a, 99, replace=False)
-        candidates_reviews_words = list(map(lambda candidate: self.item_reviews_words[candidate], candidates))
-        candidates_reviews_words = stack_reviews(candidates_reviews_words)
-        return candidates_reviews_words
+        negs = np.random.choice(a, 1, replace=False)
+        return negs[0]
+
+        # sample = self.asin_dict[item]
+        # all_sample = sample['positive'] + sample['negative']
+        # neg = np.random.choice(all_sample, 5, replace=False, p=sample['prob'])
+        # if neg[0] not in self.item_reviews_words:
+        #     neg = np.random.choice(list(self.item_reviews_words.keys()), 1, replace=False)
+        # return neg[0]
+
+    # def neg_candidates(self, item):
+    #     """random select 99 candidates to participate test evaluation"""
+    #     a = list(self.item_reviews_words.keys() - {item, })
+    #     candidates = np.random.choice(a, 99, replace=False)
+    #     candidates_reviews_words = list(map(lambda candidate: self.item_reviews_words[candidate], candidates))
+    #     candidates_reviews_words = stack_reviews(candidates_reviews_words)
+    #     return candidates_reviews_words
+
+    def get_all_items(self):
+        """random select 99 candidates to participate test evaluation"""
+        all_asin = {}
+        all_review_words = []
+        for pair in self.item_reviews_words.items():
+            all_asin[pair[0]] = len(all_asin)
+            all_review_words.append(pair[1])
+        all_review_words = stack_reviews(all_review_words)
+        return all_asin, all_review_words
 
     @staticmethod
     def clip_words(full_df: DataFrame):
@@ -253,6 +303,7 @@ class AmazonDataset(Dataset):
         review_nums: np.ndarray = items.apply(AmazonDataset.compute_max_review_num).to_numpy()
         mode_review_num = np.argmax(np.bincount(review_nums))
         max_review_num = mode_review_num
+        # max_review_num = 1
 
         items_reviews_words = {}
         for item in items:
@@ -268,3 +319,10 @@ class AmazonDataset(Dataset):
             # shape: (batch, seq_lens)
 
         return items_reviews_words
+
+    @staticmethod
+    def init(full_df: pd.DataFrame):
+        users = full_df['userID'].unique()
+        items = full_df['asin'].unique()
+        item_map = dict(zip(items, range(len(items))))
+        return users, item_map

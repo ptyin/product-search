@@ -1,0 +1,349 @@
+import text_process
+import os
+import time
+import sys
+import gzip
+import json
+import argparse
+import itertools
+import pandas as pd
+import numpy as np
+
+
+def get_df(path):
+    """ Apply raw data to pandas DataFrame. """
+    idx = 0
+    df = {}
+    g = gzip.open(path, 'rb')
+    for line in g:
+        # if idx > 2000:
+        #     break
+        df[idx] = json.loads(line)
+        idx += 1
+    return pd.DataFrame.from_dict(df, orient='index')
+
+
+def extraction(meta_path, review_df, stop_words, count):
+    with gzip.open(meta_path, 'rb') as g:
+        categories, also_viewed = {}, {}
+        for line in g:
+            line = eval(line)
+            asin = line['asin']
+            if 'category' in line:
+                categories[asin] = [line['category']]
+            elif 'categories' in line:
+                categories[asin] = line['categories']
+            else:
+                raise Exception('category or categories tag not in metadata')
+            related = line['related'] if 'related' in line else None
+
+            # fill the also_related dictionary
+            also_viewed[asin] = []
+            relations = ['also_viewed', 'buy_after_viewing']
+            if related:
+                also_viewed[asin] = [related[r] for r in relations if r in related]
+                also_viewed[asin] = itertools.chain.from_iterable(also_viewed[asin])
+
+    queries, reviews = [], []
+    word_set = set()
+    # word_dict = {}
+    for i in range(len(review_df)):
+        asin = review_df['asin'][i]
+        review = review_df['reviewText'][i]
+        category = categories[asin]
+
+        # process queries
+        qs = map(text_process._remove_dup,
+                 map(text_process._remove_char, category))
+        qs = [[w for w in q if w not in stop_words] for q in qs]
+
+        for q in qs:
+            for w in q:
+                word_set.add(w)
+
+        # process reviews
+        review = text_process._remove_char(review)
+        review = [w for w in review if w not in stop_words]
+
+        queries.append(qs)
+        reviews.append(review)
+
+    review_df['query_'] = queries  # write query result to dataframe
+
+    # filtering words counts less than count
+    reviews = text_process._filter_words(reviews, count)
+    for review in reviews:
+        for w in review:
+            word_set.add(w)
+
+    review_df['reviewText'] = reviews
+    word_dict = dict(zip(word_set, range(1, len(word_set) + 1)))  # start from 1
+    review_df['queryWords'] = [[[word_dict[w] for w in q] for q in qs] for qs in queries]
+
+    return review_df, also_viewed, word_dict
+
+
+def reindex(df):
+    """ Reindex the reviewID from 0 to total length. """
+    reviewer = df['reviewerID'].unique()
+    reviewer_map = {r: i for i, r in enumerate(reviewer)}
+
+    userIDs = [reviewer_map[df['reviewerID'][i]] for i in range(len(df))]
+    df['userID'] = userIDs
+    return df
+
+
+def split_data(df, max_users_per_product, max_products_per_user):
+    """ Enlarge the dataset with the corresponding user-query-item pairs."""
+    df_enlarge = {}
+    i = 0
+    for row in range(len(df)):
+        for j in range(len(df['query_'][row])):
+            df_enlarge[i] = {'reviewerID': df['reviewerID'][row],
+                             'userID': df['userID'][row], 'query_': df['query_'][row][j],
+                             'queryWords': df['queryWords'][row][j],
+                             'asin': df['asin'][row], 'reviewText': df['reviewText'][row],
+                             'reviewWords': None}
+            i += 1
+    df_enlarge = pd.DataFrame.from_dict(df_enlarge, orient='index')
+
+    split_filter = []
+    df_enlarge = df_enlarge.sort_values(by='userID')
+    user_length = df_enlarge.groupby('userID').size().tolist()
+
+    for user in range(len(user_length)):
+        length = user_length[user]
+        tag = ['Train' for _ in range(int(length * 0.7))]
+        tag_test = ['Test' for _ in range(length - int(length * 0.7))]
+        tag.extend(tag_test)
+        if length == 1:
+            tag = ['Train']
+        tag = np.random.choice(tag, length, replace=False)
+        split_filter.extend(tag.tolist())
+
+    df_enlarge['filter'] = split_filter
+    # ----------------Cut for Cold Start----------------
+    if max_products_per_user is not None:  # cold start for new user
+        users = df_enlarge.groupby('userID')
+        for products_per_user in users:
+            products_per_user = products_per_user[1]
+            products_per_user = products_per_user[products_per_user['filter'] == 'Train']
+            if len(products_per_user) > max_products_per_user:
+                df_enlarge.drop(products_per_user[max_products_per_user:].index, inplace=True)
+
+    if max_users_per_product is not None:  # # cold start for new product
+        products = df_enlarge.groupby('asin')
+        for users_per_product in products:
+            users_per_product = users_per_product[1]
+            users_per_product = users_per_product[users_per_product['filter'] == 'Train']
+            if len(users_per_product) > max_users_per_product:
+                df_enlarge.drop(users_per_product[max_users_per_product:].index, inplace=True)
+
+    df_enlarge_train = df_enlarge[df_enlarge['filter'] == 'Train']
+    df_enlarge_test = df_enlarge[df_enlarge['filter'] == 'Test']
+    print('---------------', len(df_enlarge))
+    return (df_enlarge.reset_index(drop=True),
+            df_enlarge_train.reset_index(drop=True),
+            df_enlarge_test.reset_index(drop=True))
+
+
+def get_user_bought(df):
+    """ Obtain the products each user has bought before test. """
+    user_bought = {}
+    for i in range(len(df)):
+        user = df['reviewerID'][i]
+        item = df['asin'][i]
+        if user not in user_bought:
+            user_bought[user] = []
+        user_bought[user].append(item)
+    return user_bought
+
+
+def rm_test(df, df_test, word_dict):
+    """ Remove test review data and remove duplicate reviews."""
+    df = df.reset_index(drop=True)
+    review_text = []
+    review_words = []
+    review_train_set = set()
+
+    review_test = set(repr(
+        df_test['reviewText'][i]) for i in range(len(df_test)))
+
+    for i in range(len(df)):
+        r = repr(df['reviewText'][i])
+        if not r in review_train_set and not r in review_test:
+            review_train_set.add(r)
+            review_text.append(df['reviewText'][i])
+            review_words.append([word_dict[w] for w in df['reviewText'][i]])
+        else:
+            review_text.append('[]')
+            review_words.append('[]')
+    df['reviewText'] = review_text
+    df['reviewWords'] = review_words
+    return df
+
+
+def neg_sample(also_viewed, unique_asin):
+    """
+    Sample the negative set for each asin(item), first add the 'also_view'
+    asins to the dict, then add asins share the same query. 
+    """
+    asin_samples = {}
+    for asin in unique_asin:
+        positive = set([a for a in also_viewed[asin] if a in unique_asin])
+        negative = list(unique_asin - positive)
+        if not len(positive) < 20:
+            negative = np.random.choice(
+                negative, 5 * len(positive), replace=False).tolist()
+
+        elif not len(positive) < 5:
+            negative = np.random.choice(
+                negative, 10 * len(positive), replace=False).tolist()
+
+        elif not len(positive) < 1:
+            negative = np.random.choice(
+                negative, 20 * len(positive), replace=False).tolist()
+
+        else:
+            negative = np.random.choice(negative, 50, replace=False).tolist()
+
+        pos_pr = [0.7 for _ in range(len(positive))]
+        neg_pr = [0.3 for _ in range(len(negative))]
+        prob = np.array(pos_pr + neg_pr)
+        prob = prob / prob.sum()
+
+        asin_samples[asin] = {'positive': list(positive),
+                              'negative': negative,
+                              'prob': prob.tolist()}
+    return asin_samples
+
+
+def filter_user_bought(df: pd.DataFrame, num):
+    if num is not None:
+        # user_bought = get_user_bought(df)
+        # mask = df['reviewerID'].map(lambda reviewer: len(user_bought[reviewer]) == num).tolist()
+        # df = df[mask].reset_index(drop=True)
+        user_bought = {}
+        mask = []
+        for i in range(len(df)):
+            user = df['reviewerID'][i]
+            if user not in user_bought:
+                user_bought[user] = 1
+                mask.append(True)
+            elif user_bought[user] < num:
+                user_bought[user] += 1
+                mask.append(True)
+            else:
+                mask.append(False)
+        df = df[mask].reset_index(drop=True)
+    return df
+
+
+def main():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--word_count',
+                        type=int,
+                        default=5,
+                        help="remove the words number less than count")
+    parser.add_argument('--is_clothing',
+                        action='store_true',
+                        default=False,
+                        help="Clothing dataset needs to be split")
+    # parser.add_argument("--img_feature_file",
+    #                     type=str,
+    #                     default="data/image_features_Musical_Instruments.b",
+    #                     help="the raw image feature file")
+    parser.add_argument('--bought_num',
+                        type=int,
+                        default=None,
+                        help='the number of history bought items')
+    parser.add_argument("--max_users_per_product",
+                        type=int,
+                        default=None,
+                        help="define the maximum number of bought products per user, no maximum number if None")
+    parser.add_argument("--max_products_per_user",
+                        type=int,
+                        default=None,
+                        help="define the maximum number of users per product, no maximum number if None")
+
+    parser.add_argument('--dataset', type=str, default='Automotive')
+    parser.add_argument('--main_path', type=str, default='/disk/yxk/data/cold_start/')
+    parser.add_argument('--stop_file', type=str, default='./stopwords.txt')
+    parser.add_argument('--processed_path', type=str,
+                        default='/disk/yxk/processed/cold_start/')
+
+    global FLAGS
+    FLAGS = parser.parse_args()
+    if (FLAGS.max_users_per_product is not None and FLAGS.max_users_per_product < 1) or\
+            (FLAGS.max_products_per_user is not None and FLAGS.max_products_per_user < 1):
+        raise Exception('Too few samples to train! Increase max users or max products.')
+
+    # --------------PREPARE PATHS--------------
+    if not os.path.exists(FLAGS.processed_path):
+        os.makedirs(FLAGS.processed_path)
+
+    stop_path = FLAGS.stop_file
+    # meta_path = os.path.join(FLAGS.main_path, FLAGS.meta_file)
+    meta_path = os.path.join(FLAGS.main_path, "meta_{}.json.gz".format(FLAGS.dataset))
+    # review_path = os.path.join(FLAGS.main_path, FLAGS.review_file)
+    review_path = os.path.join(FLAGS.main_path, "reviews_{}_5.json.gz".format(FLAGS.dataset))
+    # img_path = os.path.join(FLAGS.main_path, FLAGS.img_feature_file)
+
+    review_df = get_df(review_path)
+    # review_df = image_process._rm_image(review_df, img_path)  # remove items without image
+
+    stop_df = pd.read_csv(stop_path, header=None, names=['stopword'])
+    stop_words = set(stop_df['stopword'].unique())
+
+    # --------------PRE-EXTRACTION--------------
+    start_time = time.time()
+    df = filter_user_bought(review_df, FLAGS.bought_num)
+    df, also_viewed, word_dict = extraction(meta_path, df, stop_words, FLAGS.word_count)
+    df = df.drop(['reviewerName', 'reviewTime', 'helpful', 'summary',
+                  'unixReviewTime', 'overall'], axis=1)  # remove non-useful keys
+
+    print("The number of {} users is {:d}; items is {:d}; feedbacks is {:d}.".format(
+        FLAGS.dataset, len(df.reviewerID.unique()), len(df.asin.unique()), len(df)),
+        "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)))
+
+    df = reindex(df)  # reset the index of users
+    start_time = time.time()
+    df, df_train, df_test = split_data(df,
+                                       max_users_per_product=FLAGS.max_users_per_product,
+                                       max_products_per_user=FLAGS.max_products_per_user)
+    print('Data split done!',
+          "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)))
+
+    # sample negative items
+    start_time = time.time()
+    asin_samples = neg_sample(also_viewed, set(df.asin.unique()))
+    print("Negtive samples of {} set done!".format(FLAGS.dataset),
+          "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)))
+
+    # ---------------------------------Save Parameters---------------------------------
+    FLAGS.processed_path = os.path.join(FLAGS.processed_path, FLAGS.dataset, str(FLAGS.bought_num))
+    if not os.path.exists(FLAGS.processed_path):
+        os.makedirs(FLAGS.processed_path)
+    json.dump(asin_samples, open(os.path.join(
+        FLAGS.processed_path, '{}_asin_sample.json'.format(FLAGS.dataset)), 'w'))
+
+    user_bought_train = get_user_bought(df_train)
+    json.dump(user_bought_train, open(os.path.join(
+        FLAGS.processed_path, '{}_user_bought.json'.format(FLAGS.dataset)), 'w'))
+
+    json.dump(word_dict, open(os.path.join(
+        FLAGS.processed_path, '{}_word_dict.json'.format(FLAGS.dataset)), 'w'))
+
+    df = rm_test(df, df_test, word_dict)  # remove the reviews from test set
+    df_train = rm_test(df_train, df_test, word_dict)
+
+    df.to_csv(os.path.join(
+        FLAGS.processed_path, '{}_full.csv'.format(FLAGS.dataset)), index=False)
+    df_train.to_csv(os.path.join(
+        FLAGS.processed_path, '{}_train.csv'.format(FLAGS.dataset)), index=False)
+    df_test.to_csv(os.path.join(
+        FLAGS.processed_path, '{}_test.csv'.format(FLAGS.dataset)), index=False)
+
+
+if __name__ == "__main__":
+    main()

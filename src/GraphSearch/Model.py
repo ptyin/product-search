@@ -10,51 +10,18 @@ from GraphSearch.utils.self_attention.Mean import Mean
 from GraphSearch.utils.experiment.loss import *
 
 
-class SelfAttentionLayer(nn.Module):
-    def __init__(self, input_dim):
-        super(SelfAttentionLayer, self).__init__()
-        self.input_dim = input_dim
-        self.reduce_projection = nn.Linear(input_dim, 1)
-
-    def reset_parameters(self):
-        nn.init.xavier_normal_(self.reduce_projection.weight)
-        nn.init.uniform_(self.reduce_projection.bias, 0, 0.01)
-
-    def forward(self, words_embedding: torch.Tensor):
-        """
-        Parameters
-        -----------
-        words_embedding: torch.Tensor
-            shape(batch, sequence, input_dim)
-
-        Return
-        -----------
-        torch.Tensor
-            shape(batch, input_dim)
-        """
-        # TODO deprecated, change to multi-head self attention
-        original_shape = words_embedding.shape
-        # ------------tanh(W*w+b)------------
-        reduced_words = torch.tanh(self.reduce_projection(words_embedding))
-        # shape: (batch, sequence, 1)
-        weight = torch.softmax(reduced_words, dim=1)
-        # shape: (batch, sequence, 1)
-        entity_embedding = torch.sum(weight * words_embedding, dim=1)
-        # shape: (batch, input_dim)
-        return entity_embedding
-
-
 class Model(nn.Module):
     def __init__(self, graph: dgl.DGLHeteroGraph, word_num, query_num, entity_num,
                  word_embedding_size, entity_embedding_size,
                  head_num,
                  convolution_num,
-                 l2):
+                 l2, mode='ordinary'):
         super().__init__()
         self.graph = graph
         self.word_num = word_num
         self.query_num = query_num
         self.entity_num = entity_num
+        self.mode = mode
 
         self.word_embedding_size = word_embedding_size
         self.entity_embedding_size = entity_embedding_size
@@ -112,6 +79,7 @@ class Model(nn.Module):
         # nn.init.normal_(self.entity_embedding_layer.weight, 0, 1)
 
         for layers in [self.doc_embedding, self.query_translation]:
+        # for layers in [self.doc_embedding]:
             for layer in layers:
                 if isinstance(layer, MultiHeadSelfAttention):
                     layer.reset_parameters()
@@ -125,6 +93,7 @@ class Model(nn.Module):
                 query_translation = self.query_translation(queries.mailbox['m'])
                 doc_embedding = self.doc_embedding(queries.mailbox['m'])
                 return {'l': query_translation, 'h': doc_embedding}
+                # return {'l': doc_embedding, 'h': doc_embedding}
                 # return {'l': query_translation}
 
             self.graph.update_all(message_func=fn.copy_u('w', 'm'),
@@ -152,10 +121,10 @@ class Model(nn.Module):
             self.graph.update_all(message_func=fn.copy_u('h', 'm'),
                                   reduce_func=fn.sum('m', 'h'),
                                   etype='profiles')
-            entity_embeddings = self.graph.nodes['entity'].data['h'] / self.graph.nodes['entity'].data['deg_p']
+            entity_h = self.graph.nodes['entity'].data['h'] / self.graph.nodes['entity'].data['deg_p']
             # shape: (batch, entity_size + word_size)
             self.graph.nodes['entity'].data['e_0'] = torch.cat([self.graph.nodes['entity'].data['l'],
-                                                                entity_embeddings], dim=-1)
+                                                                entity_h], dim=-1)
 
             # # shape: (batch, entity_size)
             # self.graph.nodes['entity'].data['e_0'] = self.graph.nodes['entity'].data['l']
@@ -185,6 +154,7 @@ class Model(nn.Module):
             entity_embeddings = torch.sum(entity_embeddings, dim=0) / (self.convolution_num + 1)
             # shape: (batch, entity_size + word_size)
 
+        self.graph.nodes['entity'].data['h'] = entity_h
         self.graph.nodes['entity'].data['e'] = entity_embeddings
 
     def regularization_loss(self):
@@ -195,6 +165,19 @@ class Model(nn.Module):
             l2_norm += weight.norm()
         l2_norm += self.word_embedding_layer.weight.norm() + self.entity_embedding_layer.weight.norm()
         return self.l2 * l2_norm
+
+    def predict(self, user, items, query_words):
+        user_embeddings = self.graph.nodes['entity'].data['e'][user].repeat(len(items), 1)
+        item_a = self.graph.nodes['entity'].data['e'][items][:, :self.entity_embedding_size]
+        query_embeddings = self.word_embedding_layer(query_words)  # shape: (batch, seq, word_embedding_size)
+
+        user_a = (user_embeddings[:, :self.entity_embedding_size])
+        user_b = (user_embeddings[:, self.entity_embedding_size:])
+        query_a = self.query_translation(query_embeddings).repeat(len(items), 1)
+        query_b = self.doc_embedding(query_embeddings).repeat(len(items), 1)
+        search_prob = torch.sigmoid(torch.sum((user_a+query_a) * item_a, dim=-1))
+        text_prob = torch.sigmoid(torch.sum((user_b+query_b) * item_a, dim=-1))
+        return search_prob * text_prob
 
     def forward(self, users, items, query_words, mode='train', neg_items=None):
         """
@@ -213,7 +196,10 @@ class Model(nn.Module):
         """
         if mode == 'output_embedding':
             # item_embeddings = self.graph.nodes['entity'].data['e'][items]
-            item_embeddings = self.graph.nodes['entity'].data['e'][items][:, :self.entity_embedding_size]
+            if self.mode == 'no_id_prop':
+                item_embeddings = self.graph.nodes['entity'].data['l'][items]
+            else:
+                item_embeddings = self.graph.nodes['entity'].data['e'][items][:, :self.entity_embedding_size]
             return item_embeddings
 
         if mode == 'train':
@@ -222,27 +208,41 @@ class Model(nn.Module):
         user_embeddings = self.graph.nodes['entity'].data['e'][users]
         query_embeddings = self.word_embedding_layer(query_words)  # shape: (batch, seq, word_embedding_size)
         query_translation = self.query_translation(query_embeddings)
+        # query_doc_embedding = self.doc_embedding(query_embeddings)
 
-        personalized_model = user_embeddings[:, :self.entity_embedding_size] + query_translation
-
-        # query_embeddings = self.doc_embedding(query_embeddings)  # shape: (batch, embedding_size)
-        # query_embeddings = torch.cat([query_translation,
-        #                               query_embeddings], dim=1)
-        # personalized_model = user_embeddings + query_embeddings
+        if self.mode == 'no_id_prop':
+            personalized_model = self.graph.nodes['entity'].data['l'][users] + query_translation
+        else:
+            personalized_model = user_embeddings[:, :self.entity_embedding_size] + query_translation
 
         if mode == 'train':
             item_embeddings = self.graph.nodes['entity'].data['e'][items]
-            # neg_user_embeddings = self.graph.nodes['entity'].data['e'][neg_users]
             neg_item_embeddings = self.graph.nodes['entity'].data['e'][neg_items]
-            # return hem_loss(personalized_model, item_embeddings, neg_item_embeddings) + self.regularization_loss()
 
-            search_loss = hem_loss(pred=personalized_model,
-                                   pos=item_embeddings[:, :self.entity_embedding_size],
-                                   negs=neg_item_embeddings[:, :, :self.entity_embedding_size])
-            user_loss = log_loss(pred=user_embeddings[:, :self.entity_embedding_size],
-                                 pos=user_embeddings[:, self.entity_embedding_size:])
-            item_loss = log_loss(pred=item_embeddings[:, :self.entity_embedding_size],
-                                 pos=item_embeddings[:, self.entity_embedding_size:])
+            if self.mode == 'no_id_prop':
+                search_loss = hem_loss(pred=personalized_model,
+                                       pos=self.graph.nodes['entity'].data['l'][items],
+                                       negs=self.graph.nodes['entity'].data['l'][neg_items])
+                user_loss = log_loss(pred=self.graph.nodes['entity'].data['l'][users],
+                                     pos=user_embeddings[:, self.entity_embedding_size:])
+                item_loss = log_loss(pred=self.graph.nodes['entity'].data['l'][items],
+                                     pos=item_embeddings[:, self.entity_embedding_size:])
+            elif self.mode == 'no_text_prop':
+                search_loss = hem_loss(pred=personalized_model,
+                                       pos=item_embeddings[:, :self.entity_embedding_size],
+                                       negs=neg_item_embeddings[:, :, :self.entity_embedding_size])
+                user_loss = log_loss(pred=user_embeddings[:, :self.entity_embedding_size],
+                                     pos=self.graph.nodes['entity'].data['h'][users])
+                item_loss = log_loss(pred=item_embeddings[:, :self.entity_embedding_size],
+                                     pos=self.graph.nodes['entity'].data['h'][items])
+            else:
+                search_loss = hem_loss(pred=personalized_model,
+                                       pos=item_embeddings[:, :self.entity_embedding_size],
+                                       negs=neg_item_embeddings[:, :, :self.entity_embedding_size])
+                user_loss = log_loss(pred=user_embeddings[:, :self.entity_embedding_size],
+                                     pos=user_embeddings[:, self.entity_embedding_size:])
+                item_loss = log_loss(pred=item_embeddings[:, :self.entity_embedding_size],
+                                     pos=item_embeddings[:, self.entity_embedding_size:])
 
             return search_loss + user_loss + item_loss + self.regularization_loss()
             # return search_loss + self.regularization_loss()

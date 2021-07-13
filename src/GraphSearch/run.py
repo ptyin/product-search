@@ -3,12 +3,14 @@ import os
 from argparse import ArgumentParser
 import pandas as pd
 import time
+import numpy as np
 import torch
 from torch.utils.data import DataLoader
 from torch import nn
 
 from common.data_preparation import parser_add_data_arguments, data_preparation
 from common.metrics import display
+from common.experiment import *
 from .AmazonDataset import AmazonDataset
 from .Model import Model
 from .evaluate import evaluate
@@ -31,9 +33,14 @@ def run():
                         default=5,
                         type=int,
                         help='negative sample number')
+    parser.add_argument('--mode',
+                        default='ordinary',
+                        choices=('ordinary', 'no_text_prop', 'no_id_prop'),
+                        type=str,
+                        help='experiment setup')
     # ------------------------------------Model Hyper Parameters------------------------------------
     parser.add_argument('--embedding_size',
-                        default=0,
+                        default=64,
                         type=int,
                         help="word embedding size")
     parser.add_argument('--word_embedding_size',
@@ -72,18 +79,13 @@ def run():
         word2vec = torch.load(os.path.join(config.processed_path, '{}_word_matrix.pt'.format(config.dataset)))
     except FileNotFoundError:
         word2vec = None
+
+
     # clip words
     AmazonDataset.clip_words(full_df)
     users, item_map, query_map, graph = AmazonDataset.construct_graph(full_df, len(word_dict) + 1)
     # graph = graph.to('cuda:{}'.format(config.device))
     graph = graph.to('cuda')
-
-    train_dataset = AmazonDataset(train_df, users, item_map, asin_dict, neg_sample_num=config.neg_sample_num)
-    test_dataset = AmazonDataset(test_df, users, item_map, asin_dict)
-
-    train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=True, num_workers=0,
-                              collate_fn=AmazonDataset.collate_fn)
-    test_loader = DataLoader(test_dataset, drop_last=True, batch_size=1, shuffle=False, num_workers=0)
 
     model = Model(graph, len(word_dict) + 1, len(query_map), len(users) + len(item_map),
                   word_embedding_size=config.word_embedding_size,
@@ -94,6 +96,28 @@ def run():
     model.apply_word2vec(word2vec)
     model = model.cuda()
     model.init_graph()
+    if config.load:
+        model.load_state_dict(torch.load(config.save_path))
+        model.graph_propagation()
+        user_embeddings: torch.Tensor = model.graph.nodes['entity'].data['e'][:len(users), :model.entity_embedding_size]
+        # top_similarities, top_words = word_similarity(config, word_dict, model)
+        neighbor_similarity(config, user_embeddings)
+
+        # user_b: torch.Tensor = model.graph.nodes['entity'].data['e'][:len(users), model.entity_embedding_size:]
+        # word_embeddings = model.word_embedding_layer.weight
+        # top_words = word_similarity(word_embeddings, user_b, word_dict)
+        # word_dict: dict = word_dict
+        # reversed_word_dict = {v: k for k, v in word_dict.items()}
+        # for word in top_words[0]:
+        #     print(reversed_word_dict[word.item()], end=' ')
+        return
+
+    train_dataset = AmazonDataset(train_df, users, item_map, asin_dict, neg_sample_num=config.neg_sample_num)
+    test_dataset = AmazonDataset(test_df, users, item_map, asin_dict)
+
+    train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=True, num_workers=0,
+                              collate_fn=AmazonDataset.collate_fn)
+    test_loader = DataLoader(test_dataset, drop_last=True, batch_size=1, shuffle=False, num_workers=0)
 
     # criterion = nn.TripletMarginLoss(margin=config.margin, reduction='mean')
     optimizer = torch.optim.Adagrad(model.parameters(), lr=config.lr)
@@ -116,3 +140,13 @@ def run():
 
         Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)
+
+    if not config.load:
+        torch.save(model.state_dict(), config.save_path)
+
+
+def user_similarity(model: Model, user_num):
+    user: torch.Tensor = model.graph.nodes['entity'].data['e'][:user_num, :model.entity_embedding_size]
+    user_t = user.transpose(0, 1)
+    prob = torch.sigmoid(user @ user_t)
+    _, top_k_similar_users = torch.topk(prob, 5, dim=-1)

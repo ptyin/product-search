@@ -1,4 +1,5 @@
 import sys
+from QL.run import run_ql, run_uql
 from TranSearchText.run import run as run_tran_search
 from GraphSearch.run import run as run_graph_search
 from MetaSearch.run import run as run_meta_search
@@ -21,11 +22,13 @@ if __name__ == '__main__':
         eval(run_str)
     else:
         # ----------Default----------
+        # run_ql()
+        # run_uql()
         # run_tran_search()
-        run_graph_search()
+        # run_graph_search()
         # run_meta_search()
         # run_lse()
-        # run_hem()
+        run_hem()
         # run_aem()
         # run_zam()
 

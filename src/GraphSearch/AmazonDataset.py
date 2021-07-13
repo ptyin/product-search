@@ -67,7 +67,7 @@ class AmazonDataset(Dataset):
     def clip_words(full_df: pd.DataFrame):
         def clip(review):
             review = eval(review)
-            max_word_num = 15
+            max_word_num = 100
             if len(review) > max_word_num:
                 # return np.random.choice(review, max_word_num, replace=False).tolist()
                 return review[:max_word_num]

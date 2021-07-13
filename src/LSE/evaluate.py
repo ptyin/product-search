@@ -19,16 +19,13 @@ def evaluate(model, test_dataset, test_loader, top_k):
         item = item.cpu()
         pred = model(None, query, 'test')
 
-        scores = torch.pairwise_distance(pred.repeat(len(all_items_ids), 1), all_items_embed)
-        _, ranking_list = scores.sort(dim=-1, descending=True)
+        scores = torch.sum(pred.repeat(len(all_items_ids), 1) * all_items_embed, dim=1)
+        # _, ranking_list = scores.sort(dim=-1, descending=True)
+        _, ranking_list = scores.topk(top_k, dim=-1, largest=True)
         ranking_list = ranking_list.tolist()
-        top_idx = []
-        while len(top_idx) < top_k:
-            candidate_item = ranking_list.pop()
-            top_idx.append(candidate_item)
-        Mrr.append(mrr(item, top_idx))
-        Hr.append(hit(item, top_idx))
-        Ndcg.append(ndcg(item, top_idx))
+        Mrr.append(mrr(item, ranking_list))
+        Hr.append(hit(item, ranking_list))
+        Ndcg.append(ndcg(item, ranking_list))
 
         # query, pos = model(item, query_words, 'test')
         # query = query.squeeze(dim=1)

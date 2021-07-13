@@ -1,7 +1,9 @@
 import torch
 from torch import nn
-from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
-import learn2learn as l2l
+from MetaSearch.self_attention.MultiHeadSelfAttention import MultiHeadSelfAttention
+from MetaSearch.self_attention.Mean import Mean
+from MetaSearch.experiment.loss import *
+# from torch.nn.utils.rnn import pack_padded_sequence, pad_packed_sequence
 
 
 class AttentionLayer(nn.Module):
@@ -82,30 +84,48 @@ class SelfAttentionLayer(nn.Module):
 
 
 class Model(nn.Module):
-    def __init__(self, word_num, word_embedding_size,
-                 attention_hidden_dim):
+    def __init__(self, word_num, user_num, item_num,
+                 embedding_size, attention_hidden_dim, head_num):
         super(Model, self).__init__()
         self.word_num = word_num
-        self.word_embedding_size = word_embedding_size
+        self.user_num = user_num
+        self.item_num = item_num
+
+        self.embedding_size = embedding_size
         self.attention_hidden_dim = attention_hidden_dim
 
-        self.word_embedding_layer = nn.Embedding(self.word_num, self.word_embedding_size, padding_idx=0)
-        self.doc_embedding_layer = SelfAttentionLayer(self.word_embedding_size)
-        self.attention_layer = AttentionLayer(self.word_embedding_size, self.attention_hidden_dim)
-        # self.personalized_factor = nn.Parameter(torch.tensor(0.0))
+        self.word_embedding_layer = nn.Embedding(self.word_num, self.embedding_size, padding_idx=0)
+        # self.user_embedding_layer = nn.Embedding(self.user_num, self.embedding_size)
+        # self.item_embedding_layer = nn.Embedding(self.item_num, self.embedding_size)
+        # self.entity_embedding_layer = nn.Embedding(self.entity_num, self.embedding_size)
+        self.doc_embedding_layer = SelfAttentionLayer(self.embedding_size)
+        # self.doc_embedding_layer = nn.Sequential(MultiHeadSelfAttention(self.embedding_size,
+        #                                                                 self.embedding_size // head_num,
+        #                                                                 head_num),
+        #                                          Mean(dim=-2))
+
+        self.attention_layer = AttentionLayer(self.embedding_size, self.attention_hidden_dim)
+        # self.personalized_factor = nn.Parameter(torch.tensor(0.5))
         self.personalized_factor = 1
 
-        self.global_parameters: list = [self.word_embedding_layer.weight,
-                                        self.doc_embedding_layer.reduce_projection.weight]
-
+        # self.global_parameters: list = [self.word_embedding_layer.weight,
+        #                                 self.doc_embedding_layer.reduce_projection.weight]
+        # self.global_parameters: list = [self.word_embedding_layer.weight,
+        #                                 self.user_embedding_layer.weight,
+        #                                 self.item_embedding_layer.weight]
+        self.global_parameters: list = [self.word_embedding_layer.weight]
         self.reset_parameters()
 
     def reset_parameters(self):
         # self.word_embedding_layer.reset_parameters()
-        nn.init.normal_(self.word_embedding_layer.weight, 0.0, 0.01)
+        nn.init.uniform_(self.word_embedding_layer.weight, 0, 0.1)
         with torch.no_grad():
             self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
+        # nn.init.uniform_(self.user_embedding_layer.weight, 0, 0.1)
+        # nn.init.uniform_(self.item_embedding_layer.weight, 0, 0.1)
         self.doc_embedding_layer.reset_parameters()
+        # for layer in self.doc_embedding_layer:
+        #     layer.reset_parameters()
         self.attention_layer.reset_parameters()
         # nn.init.uniform_(self.personalized_factor)
 
@@ -129,44 +149,75 @@ class Model(nn.Module):
         return norm
 
     def forward(self,
-                user_reviews_words: torch.LongTensor, item_reviews_words: torch.LongTensor,
-                query: torch.LongTensor,
+                users, user_reviews_words,
+                items, item_reviews_words,
+                query,
                 mode,
-                negative_item_reviews_words: torch.LongTensor = None):
+                negative_items=None, negative_item_reviews_words=None):
         """
         Parameters
         -----
-        user_reviews_words
+        users: torch.LongTensor
+            shape: (batch,)
+        user_reviews_words: torch.LongTensor
             shape: (batch, review_num, word_num)
-        item_reviews_words
+        items: torch.LongTensor
+            shape: (batch,)
+        item_reviews_words: torch.LongTensor
             shape: (batch, review_num, word_num)
-        query
+        query: torch.LongTensor
             shape: (batch, word_num)
         mode: str
             'train', 'test', 'output_embedding'
-        negative_item_reviews_words
+        negative_items: torch.LongTensor
+            shape: (batch,)
+        negative_item_reviews_words: torch.LongTensor
             shape: (batch, review_num, word_num)
         """
         if mode == 'output_embedding':
+            # item_embeddings = self.item_embedding_layer(items)
+            # return item_embeddings
+
             item_reviews_embedding = self.embedding(item_reviews_words)
-            query_embedding = self.embedding(query.unsqueeze(dim=1))
-            item_entity = self.attention_layer(item_reviews_embedding, query_embedding).squeeze(dim=0)
+            # query_embedding = self.embedding(query.unsqueeze(dim=1))
+            # item_entity = self.attention_layer(item_reviews_embedding, query_embedding).squeeze(dim=0)
+            item_entity = torch.mean(item_reviews_embedding, dim=-2)
             return item_entity
 
-        user_reviews_embedding = self.embedding(user_reviews_words)
-        item_reviews_embedding = self.embedding(item_reviews_words)
+        # user_embeddings = self.user_embedding_layer(users)
         query_embedding = self.embedding(query.unsqueeze(dim=1))
-
-        user_entity = self.attention_layer(user_reviews_embedding, query_embedding)
-        item_entity = self.attention_layer(item_reviews_embedding, query_embedding)
-
         query_embedding = query_embedding.squeeze(dim=1)
-        personalized_model = user_entity + self.personalized_factor * query_embedding
+
+        # personalized_model = user_embeddings + query_embedding
+        user_reviews_embedding = self.embedding(user_reviews_words)
+        user_entity = self.attention_layer(user_reviews_embedding, query_embedding)
+        # user_entity = torch.mean(user_reviews_embedding, dim=-2)
+        personalized_model = user_entity + query_embedding
 
         if mode == 'train':
-            negative_item_reviews_embedding = self.embedding(negative_item_reviews_words)
-            negative_item_entity = self.attention_layer(negative_item_reviews_embedding, query_embedding)
+            # user_reviews_embedding = self.embedding(user_reviews_words)
+            # user_entity = self.attention_layer(user_reviews_embedding, query_embedding)
 
-            return personalized_model, item_entity, negative_item_entity
+            # item_embeddings = self.item_embedding_layer(items)
+            item_reviews_embedding = self.embedding(item_reviews_words)
+            # item_entity = self.attention_layer(item_reviews_embedding, query_embedding)
+            item_entity = torch.mean(item_reviews_embedding, dim=-2)
+            # item_entity = torch.mean(item_reviews_embedding, dim=-2)
+
+            # negative_item_embeddings = self.item_embedding_layer(negative_items)
+            negative_item_reviews_embedding = self.embedding(negative_item_reviews_words)
+            # negative_item_entity = self.attention_layer(negative_item_reviews_embedding, query_embedding)
+            negative_item_entity = torch.mean(negative_item_reviews_embedding, dim=-2)
+
+            # search_loss = triplet_margin_loss(personalized_model, item_entity, negative_item_entity)
+            search_loss = hem_loss(personalized_model, item_entity, negative_item_entity)
+            # search_loss = hem_loss(personalized_model, item_embeddings, negative_item_embeddings)
+            # user_loss = log_loss(user_embeddings, user_entity)
+            # item_loss = log_loss(item_embeddings, item_entity)
+
+            # return search_loss + user_loss + item_loss
+            return search_loss
         elif mode == 'test':
-            return personalized_model, item_entity
+            return personalized_model
+        else:
+            raise NotImplementedError

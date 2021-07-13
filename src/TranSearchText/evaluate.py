@@ -38,7 +38,7 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
 
         pred = model(user, query, None, None, False)
         scores = torch.pairwise_distance(pred.repeat(len(all_items_map), 1), all_items_embed)
-        _, ranking_list = scores.topk(top_k, dim=-1, largest=False, sorted=False)
+        _, ranking_list = scores.topk(top_k, dim=-1, largest=False)
         ranking_list = [all_items_map[i] for i in ranking_list.tolist()]
         # top_idx = []
         # while len(top_idx) < top_k:

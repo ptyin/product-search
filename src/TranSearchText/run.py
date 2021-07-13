@@ -10,6 +10,7 @@ from gensim.models.doc2vec import Doc2Vec
 
 from common.metrics import display
 from common.data_preparation import parser_add_data_arguments, data_preparation
+from common.experiment import neighbor_similarity
 from .AmazonDataset import AmazonDataset
 from .Model import Model
 from .evaluate import evaluate
@@ -37,7 +38,7 @@ def run():
                         type=str,
                         help='the model mode')
     parser.add_argument('--embedding_size',
-                        default=128,
+                        default=64,
                         type=int,
                         help='embedding size for words and entities')
     parser.add_argument('--visual_size',
@@ -59,6 +60,18 @@ def run():
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
 
     train_df, test_df, full_df, query_dict, asin_dict, word_dict = data_preparation(config)
+
+    user_size = len(full_df.userID.unique())
+    model = Model(config.visual_size, config.textual_size, config.embedding_size, user_size,
+                  config.mode, config.dropout, is_training=True)
+    model = model.cuda()
+
+    if config.load:
+        model.load_state_dict(torch.load(config.save_path))
+        user_embeddings: torch.Tensor = model.user_embed.weight
+        neighbor_similarity(config, user_embeddings)
+        return
+
     user_bought = json.load(open(config.processed_path + '{}_user_bought.json'.format(config.dataset), 'r'))
 
     doc2vec_model = Doc2Vec.load(config.processed_path + '{}_doc2model'.format(config.dataset))
@@ -77,11 +90,6 @@ def run():
     test_dataset.sample_neg()
     test_loader = DataLoader(test_dataset, drop_last=True, batch_size=1, shuffle=False, num_workers=0)
 
-    user_size = len(full_df.userID.unique())
-
-    model = Model(config.visual_size, config.textual_size, config.embedding_size, user_size,
-                  config.mode, config.dropout, is_training=True)
-    model = model.cuda()
     optimizer = torch.optim.Adam(model.parameters(), lr=config.lr, weight_decay=0.0001)
 
     # Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
@@ -109,6 +117,9 @@ def run():
 
         Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         display(epoch, config.epochs, loss, Hr, Mrr, Ndcg, start_time)
+
+    if not config.load:
+        torch.save(model.state_dict(), config.save_path)
 
 
 def triplet_loss(anchor, positive, negatives) -> torch.Tensor:
