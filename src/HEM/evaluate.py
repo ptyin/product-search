@@ -18,8 +18,9 @@ def evaluate(model, test_dataset: AmazonDataset, test_loader, top_k):
         for _, (user, item, query) in enumerate(test_loader):
             # ---------Test---------
             assert len(user) == 1 and len(item) == 1 and len(query) == 1
+            user = user.cuda()
+            query = query.cuda()
             # ---------rank all---------
-            item = item.cpu()
             pred = model(user, None, query, 'test')
 
             # scores = torch.sum(pred.repeat(len(all_items_ids), 1) * all_items_embed, dim=1)

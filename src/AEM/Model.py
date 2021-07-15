@@ -1,43 +1,53 @@
 import torch
 from torch import nn
+from common.loss import nce_loss
 
 
 class AttentionLayer(nn.Module):
-    def __init__(self, input_dim, hidden_dim, model_name: str):
+    def __init__(self, input_dim, head_num, model_name: str):
         super(AttentionLayer, self).__init__()
         self.input_dim = input_dim
-        self.hidden_dim = hidden_dim
+        self.head_num = head_num
         self.model_name = model_name
-        self.query_projection = nn.Linear(input_dim, input_dim * hidden_dim)
-        self.reduce_projection = nn.Linear(hidden_dim, 1, bias=False)
+
+        self.query_projection = nn.Linear(input_dim, input_dim * head_num)
+        self.reduce_projection = nn.Linear(head_num, 1, bias=False)
 
     def reset_parameters(self):
-        nn.init.xavier_normal_(self.query_projection.weight)
-        nn.init.uniform_(self.query_projection.bias, 0, 0.01)
-        nn.init.xavier_normal_(self.reduce_projection.weight)
+        nn.init.xavier_uniform_(self.query_projection.weight)
+        # nn.init.uniform_(self.query_projection.bias, 0, 0.01)
+        nn.init.xavier_uniform_(self.reduce_projection.weight)
 
     def attention_function(self, query_embedding, item_embedding):
         batch_size = len(query_embedding)
+
         # ------------tanh(W*q+b)------------
         projected_query = torch.tanh(self.query_projection(query_embedding))
         # shape: (batch, 1, input_dim * hidden_dim) or (batch, input_dim * hidden_dim)
-        projected_query = projected_query.view((batch_size, self.input_dim, self.hidden_dim))
+        projected_query = projected_query.view((batch_size, self.input_dim, self.head_num))
         # shape: (batch, input_dim, hidden_dim)
-        # ------------r@tanh(W*q+b)------------
-        items_query_dotted_sum = torch.einsum('bri,bih->brh', item_embedding, projected_query)
+
+        # ------------r*tanh(W*q+b)------------
+        # items_query_dotted_sum = torch.einsum('bri,bih->brh', item_embedding, projected_query)
+        items_query_dotted_sum = item_embedding @ projected_query
         # shape: (batch, bought_item_num, hidden_dim)
         # ------------(r*tanh(W_1*q+b))*W_2------------
         items_query_reduce_sum = self.reduce_projection(items_query_dotted_sum)
         # shape: (batch, bought_item_num, 1)
 
-        return items_query_reduce_sum
+        scores = items_query_reduce_sum
+        # the line below is copied from the original source code yet inconsistent with the paper
+        # scores = (items_query_reduce_sum - torch.max(items_query_reduce_sum, dim=1, keepdim=True)[0])
 
-    def forward(self, item_embedding, query_embedding):
+        return scores
+
+    def forward(self, item_embedding, query_embedding, mask):
         """
         Parameters
         -----------
         item_embedding: shape(batch, bought_item_num, input_dim)
         query_embedding: shape(batch, 1, input_dim) or (batch, input_dim)
+        mask: shape(batch, bought_item_num, )
 
        Return
        -----------
@@ -45,11 +55,19 @@ class AttentionLayer(nn.Module):
         """
         if self.model_name == 'AEM':
             attention_score = self.attention_function(query_embedding, item_embedding)
+            # shape: (batch, bought_item_num, 1)
+            if mask is not None:
+                attention_score = attention_score.masked_fill(mask.unsqueeze(dim=-1), -float('inf'))
+                # attention_score = torch.exp(attention_score) * (~mask.unsqueeze(dim=-1))
             weight = torch.softmax(attention_score, dim=1)
+            # denominator = torch.sum(attention_score, dim=1, keepdim=True)
+            # weight = attention_score / torch.where(torch.less(denominator, 1e-7), denominator + 1, denominator)
         elif self.model_name == 'ZAM':
             item_embedding = torch.cat([torch.zeros(item_embedding.shape[0], 1, self.input_dim).cuda(),
                                         item_embedding], dim=1)
             attention_score = self.attention_function(query_embedding, item_embedding)
+            if mask is not None:
+                attention_score = attention_score.masked_fill(mask.unsqueeze(dim=-1), -float('inf'))
             weight = torch.softmax(attention_score, dim=1)
             # attention_score = torch.exp(attention_score)
             # weight = attention_score.squeeze(dim=-1) / (1 + torch.sum(attention_score, dim=1))
@@ -66,11 +84,14 @@ class AttentionLayer(nn.Module):
 class AEM(nn.Module):
     def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim):
         super().__init__()
+        self.embedding_size = embedding_size
+
         self.word_embedding_layer = nn.Embedding(word_num, embedding_size, padding_idx=0)
-        self.log_sigmoid = nn.LogSigmoid()
+        # self.log_sigmoid = nn.LogSigmoid()
         self.word_bias = nn.Embedding(word_num, 1, padding_idx=0)
 
-        self.item_embedding_layer = nn.Embedding(item_num + 1, embedding_size, padding_idx=0)
+        self.item_embedding_layer = nn.Embedding(item_num, embedding_size, padding_idx=0)
+        self.item_bias = nn.Embedding(item_num, 1, padding_idx=0)
         self.attention_layer = AttentionLayer(embedding_size, attention_hidden_dim, self.__class__.__name__)
 
         self.query_projection = nn.Linear(embedding_size, embedding_size)
@@ -78,7 +99,9 @@ class AEM(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self):
-        nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
+        init_width = 0.5 / self.embedding_size
+        # nn.init.normal_(self.word_embedding_layer.weight, 0, 0.1)
+        nn.init.uniform_(self.word_embedding_layer.weight, -init_width, init_width)
         with torch.no_grad():
             self.word_embedding_layer.weight[self.word_embedding_layer.padding_idx].fill_(0)
         nn.init.zeros_(self.word_bias.weight)
@@ -86,39 +109,23 @@ class AEM(nn.Module):
             self.word_bias.weight[self.word_embedding_layer.padding_idx].fill_(0)
 
         nn.init.zeros_(self.item_embedding_layer.weight)
-        nn.init.xavier_normal_(self.query_projection.weight)
-        nn.init.uniform_(self.query_projection.bias, 0, 0.1)
+        with torch.no_grad():
+            self.item_embedding_layer.weight[self.item_embedding_layer.padding_idx].fill_(0)
+        nn.init.zeros_(self.item_bias.weight)
+        with torch.no_grad():
+            self.item_bias.weight[self.item_bias.padding_idx].fill_(0)
+
+        # nn.init.xavier_normal_(self.query_projection.weight)
+        nn.init.xavier_uniform_(self.query_projection.weight)
+        # nn.init.uniform_(self.query_projection.bias, 0, 0.1)
         self.attention_layer.reset_parameters()
-
-    def nce_loss(self, words, neg_words, item_embeddings):
-        word_embeddings = self.word_embedding_layer(words)
-        # (batch, embedding_size)
-        word_biases = self.word_bias(words).squeeze(dim=1)
-        # (batch, )
-        neg_word_embeddings = self.word_embedding_layer(neg_words)
-        # (batch, k, embedding_size)
-        neg_word_biases = self.word_bias(neg_words).squeeze(dim=2)
-        # (batch, k, )
-
-        pos = -self.log_sigmoid(torch.sum(word_embeddings * item_embeddings) + word_biases)
-        neg = self.log_sigmoid(
-            -torch.einsum('bke,be->bk', neg_word_embeddings, item_embeddings) - neg_word_biases)
-        neg = -torch.sum(neg, dim=1)
-        return pos + neg
-
-    def search_loss(self, user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings):
-        personalized_search_model = query_embeddings + user_embeddings
-        # (batch, embedding_size)
-        pos = -self.log_sigmoid(torch.sum(item_embeddings * personalized_search_model))
-        neg = self.log_sigmoid(-torch.einsum('bke,be->bk', neg_item_embeddings, personalized_search_model))
-        neg = -torch.sum(neg)
-        return pos + neg
 
     # def regularization_loss(self):
     #     return self.l2 * (self.word_embedding_layer.weight.norm() + self.item_embedding_layer.weight.norm())
 
     def forward(self, user_bought_items, items, query_words,
                 mode: str,
+                user_bought_masks=None,
                 review_words=None,
                 neg_items=None, neg_review_words=None):
         """
@@ -131,6 +138,8 @@ class AEM(nn.Module):
         query_words
             (batch, word_num)
         mode
+        user_bought_masks
+            (batch, bought_items)
         review_words
             (batch, )
         neg_items
@@ -140,24 +149,42 @@ class AEM(nn.Module):
         """
         if mode == 'output_embedding':
             item_embeddings = self.item_embedding_layer(items)
-            return item_embeddings
+            item_biases = self.item_bias(items).squeeze(dim=1)
+
+            return item_embeddings, item_biases
         user_bought_embeddings = self.item_embedding_layer(user_bought_items)
         query_embeddings = torch.mean(self.word_embedding_layer(query_words), dim=1)
         query_embeddings = torch.tanh(self.query_projection(query_embeddings))
-        user_embeddings = self.attention_layer(user_bought_embeddings, query_embeddings)
+        user_embeddings = self.attention_layer(user_bought_embeddings, query_embeddings, mask=user_bought_masks)
+        # user_embeddings = user_bought_embeddings.mean(dim=1)
+        # user_embeddings = user_bought_embeddings.sum(dim=1) / (~user_bought_masks).sum(dim=1, keepdim=True)
+
+        personalized_model = 0.5 * (query_embeddings + user_embeddings)
+        # personalized_model = query_embeddings
 
         if mode == 'test':
-            personalized_model = query_embeddings + user_embeddings
             return personalized_model
         elif mode == 'train':
             item_embeddings = self.item_embedding_layer(items)
             neg_item_embeddings = self.item_embedding_layer(neg_items)
-            search_loss = self.search_loss(user_embeddings, query_embeddings, item_embeddings, neg_item_embeddings)
+            word_embeddings = self.word_embedding_layer(review_words)
+            # (batch, embedding_size)
+            word_biases = self.word_bias(review_words).squeeze(dim=1)
+            # (batch, )
+            neg_word_embeddings = self.word_embedding_layer(neg_review_words)
+            # (k, embedding_size)
+            neg_word_biases = self.word_bias(neg_review_words).squeeze(dim=1)
+            # (k, )
 
-            item_word_loss = self.nce_loss(review_words, neg_review_words, item_embeddings)
-            # regularization_loss = self.regularization_loss()
-            regularization_loss = 0
-            return (item_word_loss + search_loss).mean(dim=0) + regularization_loss
+            item_word_loss = nce_loss(item_embeddings,
+                                      word_embeddings, neg_word_embeddings,
+                                      word_biases, neg_word_biases).mean(dim=0)
+            item_biases, neg_biases = self.item_bias(items).squeeze(dim=1), self.item_bias(neg_items).squeeze(dim=1)
+            search_loss = nce_loss(personalized_model,
+                                   item_embeddings, neg_item_embeddings,
+                                   item_biases, neg_biases).mean(dim=0)
+            return item_word_loss + search_loss
+            # return item_word_loss
         else:
             raise NotImplementedError
 

@@ -40,7 +40,7 @@ def run():
                         type=int,
                         help='embedding size for words and entities')
     parser.add_argument('--regularization',
-                        default=0.005,
+                        default=0.00,
                         type=float,
                         help='regularization factor')
     # ------------------------------------Data Preparation------------------------------------
@@ -60,9 +60,7 @@ def run():
     train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=False, num_workers=0,
                               collate_fn=AmazonDataset.collate_fn
                               )
-    test_loader = DataLoader(test_dataset, drop_last=True, batch_size=1, shuffle=False, num_workers=0,
-                             collate_fn=AmazonDataset.collate_fn
-                             )
+    test_loader = DataLoader(test_dataset, drop_last=True, batch_size=1, shuffle=False, num_workers=0)
 
     model = Model(len(word_dict) + 1, len(users) + len(item_map), config.embedding_size, config.regularization)
     model = model.cuda()
@@ -82,14 +80,15 @@ def run():
             neg_items = train_dataset.sample_neg_items(items)
             neg_words = train_dataset.sample_neg_words(words)
             loss = model(users, items, query_words, 'train', words, neg_items, neg_words)
-            print("loss:{:.3f}".format(float(loss)))
+            # print("loss:{:.3f}".format(float(loss)))
             epoch_loss += loss
 
             optimizer.zero_grad()
             loss.backward()
-            # nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.)
+            nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.)
             optimizer.step()
             step += 1
 
         Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
+        # Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10) if epoch == config.epochs - 1 else (-1, -1, -1)
         display(epoch, config.epochs, epoch_loss / step, Hr, Mrr, Ndcg, start_time)

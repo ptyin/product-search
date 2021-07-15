@@ -28,7 +28,7 @@ if __name__ == '__main__':
         # run_graph_search()
         # run_meta_search()
         # run_lse()
-        run_hem()
-        # run_aem()
+        # run_hem()
+        run_aem()
         # run_zam()
 

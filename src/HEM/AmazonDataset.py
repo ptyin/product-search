@@ -13,6 +13,7 @@ class AmazonDataset(Dataset):
         self.df = df
         self.users = users
         self.item_map = item_map
+        self.query_max_length = query_max_length
         self.word_num = word_num
         self.asin_dict = asin_dict
         self.mode = mode
@@ -27,7 +28,6 @@ class AmazonDataset(Dataset):
 
         self.sub_sampling_rate = np.ones(word_num)
         # self.subsample(sub_sampling_rate)
-        self.query_max_length = query_max_length
         self.data = []
         if mode == 'train':
             for _, series in self.df.iterrows():
@@ -54,7 +54,7 @@ class AmazonDataset(Dataset):
             # user, item, neg_items, query, word = self.data[index]
             user, item, query, word = self.data[index]
             # query_words = torch.tensor(query, dtype=torch.long)
-            query_words = torch.ones(self.query_max_length, dtype=torch.long) * (self.word_num - 1)
+            query_words = torch.zeros(self.query_max_length, dtype=torch.long)
             query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
             # neg_words = torch.tensor(self.sample_neg_words(word), dtype=torch.long)
             # return user, item, word, neg_items, query_words
@@ -65,7 +65,7 @@ class AmazonDataset(Dataset):
             item = self.item_map[series['asin']]
             # query = torch.tensor(eval(series['queryWords']), dtype=torch.long)
             query = eval(series['queryWords'])
-            query_words = torch.ones(self.query_max_length, dtype=torch.long) * (self.word_num - 1)
+            query_words = torch.zeros(self.query_max_length, dtype=torch.long)
             query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
 
             return user, item, query_words

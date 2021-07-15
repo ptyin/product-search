@@ -16,7 +16,7 @@ def generate_word_dict(full_df: pd.DataFrame):
     for sentence in corpus:
         for word in eval(sentence):
             if word not in word_dict:
-                word_dict[word] = len(word_dict)
+                word_dict[word] = len(word_dict) + 1
     return word_dict
 
 
@@ -45,7 +45,9 @@ if __name__ == '__main__':
 
     full_df = pd.read_csv(full_path)
 
-    word_dict = generate_word_dict(full_df)
+    # word_dict = generate_word_dict(full_df)
+    word_dict = {key: value + 1 for key, value in json.load(open(word_dict_path, 'r')).items()}
+
     json.dump(word_dict, open(word_dict_path, 'w'))
     modify(full_df)
     full_df.to_csv(full_path)
