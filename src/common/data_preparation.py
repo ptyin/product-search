@@ -3,12 +3,13 @@ from argparse import Namespace
 import os
 import json
 import pandas as pd
+import logging
 
 
 def parser_add_data_arguments(parser: ArgumentParser):
     # ------------------------------------Dataset Parameters------------------------------------
     parser.add_argument('--dataset',
-                        default='Automotive',
+                        default='Musical_Instruments',
                         choices=("Automotive",
                                  "Cell_Phones_and_Accessories",
                                  "Clothing_Shoes_and_Jewelry",
@@ -25,11 +26,19 @@ def parser_add_data_arguments(parser: ArgumentParser):
     parser.add_argument('--save_str',
                         default='hem',
                         help='unique string to identify the saved model')
+    parser.add_argument('--worker_num',
+                        default=0,
+                        type=int,
+                        help='number of workers for data loading')
     # parser.add_argument('--test_mode',
     #                     default='product_score',
     #                     choices=('similarity_compute', 'product_score'),
     #                     help='test mode')
     # ------------------------------------Experiment Setup------------------------------------
+    parser.add_argument('--debug',
+                        default=True,
+                        type=bool,
+                        help="logging level")
     parser.add_argument('--device',
                         default='0',
                         help="using device")
@@ -44,6 +53,8 @@ def parser_add_data_arguments(parser: ArgumentParser):
 
 
 def data_preparation(config: Namespace):
+    logging.basicConfig(format='%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s',
+                        level=logging.DEBUG)
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     config.processed_path = os.path.join(config.processed_path, config.dataset + '/')
     config.save_path = os.path.join(config.save_path, str(config.embedding_size), config.dataset)

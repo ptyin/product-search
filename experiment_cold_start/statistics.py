@@ -4,6 +4,7 @@ import gzip
 from argparse import ArgumentParser
 import pandas as pd
 import numpy as np
+from tqdm import tqdm
 
 
 def get_df(path):
@@ -72,6 +73,7 @@ if __name__ == '__main__':
     parser = ArgumentParser()
     parser.add_argument('--main_path', type=str, default='/disk/yxk/data/cold_start/')
     parser.add_argument('--save_dir', type=str, default='/disk/yxk/statistics/cold_start/')
+    parser.add_argument('--unprocessed_dir', type=str, default='/disk/yxk/unprocessed/cold_start/')
 
     config = parser.parse_args()
     datasets = ["All_Beauty",
@@ -86,11 +88,17 @@ if __name__ == '__main__':
         review_path = os.path.join(config.main_path, "{}.json.gz".format(dataset))
         print('generating Data Frame: {}'.format(dataset))
         review = get_df(review_path)
+        if not os.path.exists(os.path.join(config.unprocessed_dir, dataset)):
+            os.makedirs(os.path.join(config.unprocessed_dir, dataset))
+        review.to_csv(os.path.join(config.unprocessed_dir, dataset, 'origin.csv'))
         print('generating user bought dict: {}'.format(dataset))
         user_bought = get_user_bought(review)
         for bought_num in bought_num_list:
             print('filtering fixed user bought number {}'.format(bought_num))
             filtered_review = filter_user_bought(review, bought_num, user_bought)
+            if not os.path.exists(os.path.join(config.unprocessed_dir, dataset)):
+                os.makedirs(os.path.join(config.unprocessed_dir, dataset))
+            filtered_review.to_csv(os.path.join(config.unprocessed_dir, dataset, '{}.csv').format(bought_num))
             print("summarizing {}-{}".format(dataset, bought_num))
             result = summarize(filtered_review, dataset, bought_num)
             if results is None:

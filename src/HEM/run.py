@@ -39,8 +39,8 @@ def run():
                         default=64,
                         type=int,
                         help='embedding size for words and entities')
-    parser.add_argument('--regularization',
-                        default=0.00,
+    parser.add_argument('--l2',
+                        default=0.005,
                         type=float,
                         help='regularization factor')
     # ------------------------------------Data Preparation------------------------------------
@@ -57,12 +57,13 @@ def run():
 
     # train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=True,
     #                           num_workers=0, collate_fn=AmazonDataset.collate_fn)
-    train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=False, num_workers=0,
-                              collate_fn=AmazonDataset.collate_fn
+    train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=False,
+                              num_workers=config.worker_num,
+                              # collate_fn=AmazonDataset.collate_fn
                               )
     test_loader = DataLoader(test_dataset, drop_last=True, batch_size=1, shuffle=False, num_workers=0)
 
-    model = Model(len(word_dict) + 1, len(users) + len(item_map), config.embedding_size, config.regularization)
+    model = Model(len(word_dict) + 1, len(users) + len(item_map), config.embedding_size, config.l2)
     model = model.cuda()
 
     # optimizer = torch.optim.Adagrad(model.parameters(), lr=config.lr)
@@ -76,19 +77,31 @@ def run():
         epoch_loss = 0
         step = 0
         model.train()
+        prepare_time, forward_time, step_time, temp_time = 0, 0, 0, time.time()
         for _, (users, items, words, query_words) in enumerate(train_loader):
+            users, items, words, query_words = (users.cuda(), items.cuda(), words.cuda(), query_words.cuda())
+            # temp_time = time.time()
             neg_items = train_dataset.sample_neg_items(items)
             neg_words = train_dataset.sample_neg_words(words)
+            prepare_time += time.time() - temp_time
+
+            temp_time = time.time()
             loss = model(users, items, query_words, 'train', words, neg_items, neg_words)
             # print("loss:{:.3f}".format(float(loss)))
             epoch_loss += loss
+            forward_time += time.time() - temp_time
 
+            temp_time = time.time()
             optimizer.zero_grad()
             loss.backward()
             nn.utils.clip_grad_norm_(model.parameters(), max_norm=5.)
             optimizer.step()
             step += 1
+            step_time += time.time() - temp_time
+
+            temp_time = time.time()
 
         Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10)
         # Mrr, Hr, Ndcg = evaluate(model, test_dataset, test_loader, 10) if epoch == config.epochs - 1 else (-1, -1, -1)
-        display(epoch, config.epochs, epoch_loss / step, Hr, Mrr, Ndcg, start_time)
+        display(epoch, config.epochs, epoch_loss / step, Hr, Mrr, Ndcg,
+                start_time, prepare_time, forward_time, step_time)

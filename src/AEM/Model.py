@@ -1,6 +1,7 @@
 import torch
 from torch import nn
 from common.loss import nce_loss
+import math
 
 
 class AttentionLayer(nn.Module):
@@ -13,16 +14,31 @@ class AttentionLayer(nn.Module):
         self.query_projection = nn.Linear(input_dim, input_dim * head_num)
         self.reduce_projection = nn.Linear(head_num, 1, bias=False)
 
+        # self.dropout = nn.Dropout()
+
     def reset_parameters(self):
-        nn.init.xavier_uniform_(self.query_projection.weight)
-        # nn.init.uniform_(self.query_projection.bias, 0, 0.01)
-        nn.init.xavier_uniform_(self.reduce_projection.weight)
+
+        # nn.init.xavier_uniform_(self.query_projection.weight)
+
+        fan_in, fan_out = self.input_dim, self.input_dim
+        std = math.sqrt(2.0 / float(fan_in + fan_out))
+        a = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
+        nn.init.uniform_(self.query_projection.weight, -a, a)
+
+        fan_in, fan_out = self.input_dim, 1
+        std = math.sqrt(2.0 / float(fan_in + fan_out))
+        a = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
+        nn.init.uniform_(self.query_projection.bias, -a, a)
+
+        nn.init.uniform_(self.reduce_projection.weight, math.sqrt(3.0), math.sqrt(3.0))
+        # nn.init.xavier_uniform_(self.reduce_projection.weight)
 
     def attention_function(self, query_embedding, item_embedding):
         batch_size = len(query_embedding)
 
         # ------------tanh(W*q+b)------------
         projected_query = torch.tanh(self.query_projection(query_embedding))
+        # projected_query = self.dropout(projected_query)
         # shape: (batch, 1, input_dim * hidden_dim) or (batch, input_dim * hidden_dim)
         projected_query = projected_query.view((batch_size, self.input_dim, self.head_num))
         # shape: (batch, input_dim, hidden_dim)
@@ -35,9 +51,9 @@ class AttentionLayer(nn.Module):
         items_query_reduce_sum = self.reduce_projection(items_query_dotted_sum)
         # shape: (batch, bought_item_num, 1)
 
-        scores = items_query_reduce_sum
+        # scores = items_query_reduce_sum
         # the line below is copied from the original source code yet inconsistent with the paper
-        # scores = (items_query_reduce_sum - torch.max(items_query_reduce_sum, dim=1, keepdim=True)[0])
+        scores = (items_query_reduce_sum - torch.max(items_query_reduce_sum, dim=1, keepdim=True)[0])
 
         return scores
 
@@ -57,21 +73,23 @@ class AttentionLayer(nn.Module):
             attention_score = self.attention_function(query_embedding, item_embedding)
             # shape: (batch, bought_item_num, 1)
             if mask is not None:
-                attention_score = attention_score.masked_fill(mask.unsqueeze(dim=-1), -float('inf'))
-                # attention_score = torch.exp(attention_score) * (~mask.unsqueeze(dim=-1))
-            weight = torch.softmax(attention_score, dim=1)
-            # denominator = torch.sum(attention_score, dim=1, keepdim=True)
-            # weight = attention_score / torch.where(torch.less(denominator, 1e-7), denominator + 1, denominator)
+                # attention_score = attention_score.masked_fill(mask, -float('inf'))
+                attention_score = torch.exp(attention_score) * mask
+            # weight = torch.softmax(attention_score, dim=1)
+            denominator = torch.sum(attention_score, dim=1, keepdim=True)
+            weight = attention_score / torch.where(torch.less(denominator, 1e-7), denominator + 1, denominator)
         elif self.model_name == 'ZAM':
-            item_embedding = torch.cat([torch.zeros(item_embedding.shape[0], 1, self.input_dim).cuda(),
+            item_embedding = torch.cat([torch.zeros(item_embedding.shape[0], 1, self.input_dim, device='cuda:0'),
                                         item_embedding], dim=1)
             attention_score = self.attention_function(query_embedding, item_embedding)
             if mask is not None:
-                attention_score = attention_score.masked_fill(mask.unsqueeze(dim=-1), -float('inf'))
-            weight = torch.softmax(attention_score, dim=1)
-            # attention_score = torch.exp(attention_score)
-            # weight = attention_score.squeeze(dim=-1) / (1 + torch.sum(attention_score, dim=1))
-            # weight = weight.unsqueeze(dim=-1)
+                mask = torch.cat([torch.ones(item_embedding.shape[0], 1, 1, dtype=torch.bool, device='cuda:0'),
+                                  mask], dim=1)
+                # attention_score = attention_score.masked_fill(mask, -float('inf'))
+                attention_score = torch.exp(attention_score) * mask
+            # weight = torch.softmax(attention_score, dim=1)
+            denominator = torch.sum(attention_score, dim=1, keepdim=True)
+            weight = attention_score / torch.where(torch.less(denominator, 1e-7), denominator + 1, denominator)
         else:
             raise NotImplementedError
         # shape: (batch, bought_item_num, 1)
@@ -82,9 +100,10 @@ class AttentionLayer(nn.Module):
 
 
 class AEM(nn.Module):
-    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim):
+    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim, l2):
         super().__init__()
         self.embedding_size = embedding_size
+        self.l2 = l2
 
         self.word_embedding_layer = nn.Embedding(word_num, embedding_size, padding_idx=0)
         # self.log_sigmoid = nn.LogSigmoid()
@@ -117,11 +136,20 @@ class AEM(nn.Module):
 
         # nn.init.xavier_normal_(self.query_projection.weight)
         nn.init.xavier_uniform_(self.query_projection.weight)
-        # nn.init.uniform_(self.query_projection.bias, 0, 0.1)
+
+        fan_in, fan_out = self.embedding_size, 1
+        std = math.sqrt(2.0 / float(fan_in + fan_out))
+        a = math.sqrt(3.0) * std  # Calculate uniform bounds from standard deviation
+        nn.init.uniform_(self.query_projection.bias, -a, a)
+
         self.attention_layer.reset_parameters()
 
-    # def regularization_loss(self):
-    #     return self.l2 * (self.word_embedding_layer.weight.norm() + self.item_embedding_layer.weight.norm())
+    def regularization_loss(self):
+        return self.l2 * (self.word_embedding_layer.weight.norm() +
+                          self.item_embedding_layer.weight.norm() +
+                          self.query_projection.weight.norm() +
+                          self.attention_layer.query_projection.weight.norm() +
+                          self.attention_layer.reduce_projection.weight.norm())
 
     def forward(self, user_bought_items, items, query_words,
                 mode: str,
@@ -183,13 +211,15 @@ class AEM(nn.Module):
             search_loss = nce_loss(personalized_model,
                                    item_embeddings, neg_item_embeddings,
                                    item_biases, neg_biases).mean(dim=0)
-            return item_word_loss + search_loss
+
+            regularization_loss = self.regularization_loss()
+            return item_word_loss + search_loss + regularization_loss
             # return item_word_loss
         else:
             raise NotImplementedError
 
 
 class ZAM(AEM):
-    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim):
-        super().__init__(word_num, item_num, embedding_size, attention_hidden_dim)
+    def __init__(self, word_num, item_num, embedding_size, attention_hidden_dim, l2):
+        super().__init__(word_num, item_num, embedding_size, attention_hidden_dim, l2)
         # self.attention_layer = AttentionLayer(embedding_size, attention_hidden_dim, 'ZAM')

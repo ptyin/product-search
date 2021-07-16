@@ -26,12 +26,17 @@ def ndcg(gt_item, pred_items):
     return 0
 
 
-def display(epoch, epoch_num, loss, h_r, m_r_r, n_d_c_g, start_time):
+def display(epoch, epoch_num, loss, h_r, m_r_r, n_d_c_g,
+            start_time, prepare_time=None, forward_time=None, step_time=None):
     print(
         "Running Epoch {:03d}/{:03d}".format(epoch + 1, epoch_num),
         "loss:{:.3f}".format(float(loss)),
         "Hr {:.3f}, Mrr {:.3f}, Ndcg {:.3f}".format(h_r, m_r_r, n_d_c_g),
-        "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)), flush=True)
+        "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)),
+        "prepare:", time.strftime("%H: %M: %S", time.gmtime(prepare_time)) if prepare_time is not None else "...",
+        "forward:", time.strftime("%H: %M: %S", time.gmtime(forward_time)) if forward_time is not None else "...",
+        "step:", time.strftime("%H: %M: %S", time.gmtime(step_time)) if step_time is not None else "...",
+        flush=True)
     record((h_r, m_r_r, n_d_c_g))
     if epoch + 1 == epoch_num:
         print('-----------Best Result:-----------')

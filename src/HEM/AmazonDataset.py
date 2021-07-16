@@ -19,7 +19,9 @@ class AmazonDataset(Dataset):
         self.mode = mode
         self.neg_sample_num = neg_sample_num
 
-        self.corpus = list(range(word_num))
+        self.all_items = torch.tensor(range(len(self.users), len(self.users) + len(self.item_map))).cuda()
+        self.item_distribution = torch.ones(len(self.all_items), dtype=torch.bool).cuda()
+        self.corpus = torch.tensor(list(range(word_num)))
         # self.word_distribution = torch.zeros(word_num)
         self.word_distribution = np.zeros(word_num)
         for words in self.df['reviewWords']:
@@ -37,11 +39,24 @@ class AmazonDataset(Dataset):
                 current_item = self.item_map[current_asin]
                 # current_neg_item = self.sample_neg_items(current_asin)
 
-                current_query_words = eval(series['queryWords'])
+                query = eval(series['queryWords'])
+                current_query_words = torch.zeros(self.query_max_length, dtype=torch.long)
+                current_query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+
                 for word in current_words:
                     if sub_sampling_rate == 0. or np.random.random() < self.sub_sampling_rate[word]:
                         # self.data.append((current_user, current_item, current_neg_item, current_query_words, word))
                         self.data.append((current_user, current_item, current_query_words, word))
+        elif mode == 'test':
+            for _, series in self.df.iterrows():
+                current_user = series['userID']
+                current_asin = series['asin']
+                current_item = self.item_map[current_asin]
+                query = eval(series['queryWords'])
+                current_query_words = torch.zeros(self.query_max_length, dtype=torch.long)
+                current_query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+
+                self.data.append((current_user, current_item, current_query_words))
 
     def __len__(self):
         if self.mode == 'train':
@@ -54,21 +69,22 @@ class AmazonDataset(Dataset):
             # user, item, neg_items, query, word = self.data[index]
             user, item, query, word = self.data[index]
             # query_words = torch.tensor(query, dtype=torch.long)
-            query_words = torch.zeros(self.query_max_length, dtype=torch.long)
-            query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+            # query_words = torch.zeros(self.query_max_length, dtype=torch.long)
+            # query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
             # neg_words = torch.tensor(self.sample_neg_words(word), dtype=torch.long)
             # return user, item, word, neg_items, query_words
-            return user, item, word, query_words
+            return user, item, word, query
         else:
-            series = self.df.loc[index]
-            user = series['userID']
-            item = self.item_map[series['asin']]
-            # query = torch.tensor(eval(series['queryWords']), dtype=torch.long)
-            query = eval(series['queryWords'])
-            query_words = torch.zeros(self.query_max_length, dtype=torch.long)
-            query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+            # series = self.df.loc[index]
+            # user = series['userID']
+            # item = self.item_map[series['asin']]
+            # # query = torch.tensor(eval(series['queryWords']), dtype=torch.long)
+            # query = eval(series['queryWords'])
+            # query_words = torch.zeros(self.query_max_length, dtype=torch.long)
+            # query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+            user, item, query = self.data[index]
 
-            return user, item, query_words
+            return user, item, query
 
     def subsample(self, threshold):
         if threshold == 0.:
@@ -82,26 +98,22 @@ class AmazonDataset(Dataset):
     def sample_neg_items(self, items):
 
         # -----------sample item-----------
-        # sample = self.asin_dict[asin]
-        # all_sample = sample['positive'] + sample['negative']
-        # neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
-        # negs = torch.zeros(neg_asin.shape, dtype=torch.long)
-        # for i, neg in enumerate(neg_asin):
-        #     if neg not in self.item_map:
-        #         neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
-        #     negs[i] = self.item_map[neg_asin[i]]
 
-        # a = list(range(len(self.users), self.item_map[asin])) +\
-        #     list(range(self.item_map[asin] + 1, len(self.users) + len(self.item_map)))
-        # negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long).cuda()
+        self.item_distribution[items - len(self.users)] = False
+        masked_all_items = self.all_items.masked_select(self.item_distribution)
 
-        items = items.cpu()
-        distribution: np.ndarray = np.concatenate([np.zeros(len(self.users)), np.ones(len(self.item_map))], axis=0)
-        distribution[items].fill(0)
-        distribution = distribution / distribution.sum(axis=0)
-        negs = np.random.choice(range(len(self.users) + len(self.item_map)), self.neg_sample_num, replace=True,
-                                p=distribution)
-        return torch.tensor(negs, dtype=torch.long).cuda()
+        # items = items.cpu()
+        # distribution: np.ndarray = np.concatenate([np.zeros(len(self.users)), np.ones(len(self.item_map))], axis=0)
+        # distribution[items] = 0
+        # distribution = distribution / distribution.sum(axis=0)
+        # negs = np.random.choice(range(len(self.users) + len(self.item_map)), self.neg_sample_num, replace=True,
+        #                         p=distribution)
+
+        negs = np.random.randint(0, len(masked_all_items), self.neg_sample_num, dtype=np.long)
+        self.item_distribution[items - len(self.users)] = True
+
+        return masked_all_items[negs]
+        # return torch.tensor(negs, dtype=torch.long).cuda()
 
     def sample_neg_words(self, words: torch.LongTensor):
         """
@@ -112,11 +124,11 @@ class AmazonDataset(Dataset):
         # a = list(self.corpus - set(words))
 
         temp = self.word_distribution[words]
-        self.word_distribution[words].fill(0)
+        self.word_distribution[words] = 0
 
-        distribution = self.word_distribution / self.word_distribution.sum(axis=0)
+        distribution = self.word_distribution / self.word_distribution.sum()
         distribution = distribution ** 0.75  # distortion
-        distribution = distribution / distribution.sum(axis=0)
+        distribution = distribution / distribution.sum()
         # negs = np.random.choice(self.corpus, len(words) * self.neg_sample_num, replace=True, p=distribution)
         # negs = torch.tensor(negs.reshape(len(words), self.neg_sample_num), dtype=torch.long).cuda()
         negs = np.random.choice(self.corpus, self.neg_sample_num, replace=True, p=distribution)
@@ -144,7 +156,7 @@ class AmazonDataset(Dataset):
         for sample in batch:
             entities.append(sample)
         entity_result = default_collate(entities)  # shape:(*, batch)
-        entity_result = list(map(lambda entity: entity.cuda(), entity_result))
+        # entity_result = list(map(lambda entity: entity.cuda(), entity_result))
         return entity_result
 
     @staticmethod
