@@ -80,7 +80,6 @@ def run():
     except FileNotFoundError:
         word2vec = None
 
-
     # clip words
     AmazonDataset.clip_words(full_df)
     users, item_map, query_map, graph = AmazonDataset.construct_graph(full_df, len(word_dict) + 1)

@@ -32,6 +32,7 @@ def display(epoch, epoch_num, loss, h_r, m_r_r, n_d_c_g,
         "Running Epoch {:03d}/{:03d}".format(epoch + 1, epoch_num),
         "loss:{:.3f}".format(float(loss)),
         "Hr {:.3f}, Mrr {:.3f}, Ndcg {:.3f}".format(h_r, m_r_r, n_d_c_g),
+        # "{:.3f}\t{:.3f}\t{:.3f}".format(h_r, m_r_r, n_d_c_g),
         "costs:", time.strftime("%H: %M: %S", time.gmtime(time.time() - start_time)),
         "prepare:", time.strftime("%H: %M: %S", time.gmtime(prepare_time)) if prepare_time is not None else "...",
         "forward:", time.strftime("%H: %M: %S", time.gmtime(forward_time)) if forward_time is not None else "...",
@@ -41,6 +42,7 @@ def display(epoch, epoch_num, loss, h_r, m_r_r, n_d_c_g,
     if epoch + 1 == epoch_num:
         print('-----------Best Result:-----------')
         print('Hr: {:.3f}, Mrr: {:.3f}, Ndcg: {:.3f}'.format(best_metric[0], best_metric[1], best_metric[2]))
+        # print('{:.3f}\t{:.3f}\t{:.3f}'.format(best_metric[0], best_metric[1], best_metric[2]))
         print('----------------------------------')
 
 

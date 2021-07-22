@@ -4,12 +4,13 @@ from torch.utils.data.dataloader import default_collate
 from torch.nn.utils.rnn import pad_sequence
 import pandas as pd
 import numpy as np
+from common import building_progress
 
 
 class AmazonDataset(Dataset):
     def __init__(self, df, users, item_map: dict, query_max_length,
                  word_num, asin_dict,
-                 mode, neg_sample_num=1, sub_sampling_rate=0.):
+                 mode, debug, neg_sample_num=1, sub_sampling_rate=0.):
         self.df = df
         self.users = users
         self.item_map = item_map
@@ -31,8 +32,10 @@ class AmazonDataset(Dataset):
         self.sub_sampling_rate = np.ones(word_num)
         # self.subsample(sub_sampling_rate)
         self.data = []
+
+        progress = building_progress(df, debug)
         if mode == 'train':
-            for _, series in self.df.iterrows():
+            for _, series in progress:
                 current_user = series['userID']
                 current_words = eval(series['reviewWords'])
                 current_asin = series['asin']
@@ -48,7 +51,7 @@ class AmazonDataset(Dataset):
                         # self.data.append((current_user, current_item, current_neg_item, current_query_words, word))
                         self.data.append((current_user, current_item, current_query_words, word))
         elif mode == 'test':
-            for _, series in self.df.iterrows():
+            for _, series in progress:
                 current_user = series['userID']
                 current_asin = series['asin']
                 current_item = self.item_map[current_asin]

@@ -4,7 +4,7 @@ from common.loss import nce_loss
 
 
 class Model(nn.Module):
-    def __init__(self, word_num, entity_num, embedding_size, l2):
+    def __init__(self, word_num, entity_num, embedding_size, factor, l2):
         super().__init__()
         self.embedding_size = embedding_size
         self.l2 = l2
@@ -18,7 +18,7 @@ class Model(nn.Module):
         self.query_projection = nn.Linear(embedding_size, embedding_size, bias=True)
 
         # self.personalized_factor = nn.Parameter(torch.tensor([0.5]))
-        self.factor = 0.5
+        self.factor = factor
         # self.factor = 1.
 
         self.reset_parameters()

@@ -8,23 +8,28 @@ import logging
 
 def parser_add_data_arguments(parser: ArgumentParser):
     # ------------------------------------Dataset Parameters------------------------------------
+    # parser.add_argument('--dataset',
+    #                     default='Musical_Instruments',
+    #                     choices=("Automotive",
+    #                              "Cell_Phones_and_Accessories",
+    #                              "Clothing_Shoes_and_Jewelry",
+    #                              "Musical_Instruments",
+    #                              "Office_Products",
+    #                              "Toys_and_Games"),
+    #                     help='name of the dataset')
     parser.add_argument('--dataset',
-                        default='Musical_Instruments',
-                        choices=("Automotive",
-                                 "Cell_Phones_and_Accessories",
-                                 "Clothing_Shoes_and_Jewelry",
-                                 "Musical_Instruments",
-                                 "Office_Products",
-                                 "Toys_and_Games"),
+                        default='Luxury_Beauty',
+                        # choices=('All_Beauty', 'Appliances', 'Magazine_Subscriptions', 'Software'),
+                        choices=("Digital_Music", "Luxury_Beauty", "Musical_Instruments", "Software"),
                         help='name of the dataset')
     parser.add_argument('--processed_path',
-                        default='/disk/yxk/processed/cf/ordinary/',
+                        default='/disk/yxk/processed/cold_start/',
                         help="preprocessed path of the raw data")
     parser.add_argument('--save_path',
-                        default='/disk/yxk/saved/cf/',
+                        default='/disk/yxk/saved/cold_start/',
                         help="preprocessed path of the raw data")
     parser.add_argument('--save_str',
-                        default='hem',
+                        default='temp',
                         help='unique string to identify the saved model')
     parser.add_argument('--worker_num',
                         default=0,
@@ -36,9 +41,10 @@ def parser_add_data_arguments(parser: ArgumentParser):
     #                     help='test mode')
     # ------------------------------------Experiment Setup------------------------------------
     parser.add_argument('--debug',
-                        default=True,
-                        type=bool,
-                        help="logging level")
+                        default=False,
+                        action='store_true',
+                        # type=bool,
+                        help="enable debug")
     parser.add_argument('--device',
                         default='0',
                         help="using device")
@@ -48,13 +54,12 @@ def parser_add_data_arguments(parser: ArgumentParser):
                         help="training epochs")
     parser.add_argument('--load',
                         default=False,
-                        type=bool,
+                        action='store_true',
+                        # type=bool,
                         help='whether load from disk or not ')
 
 
 def data_preparation(config: Namespace):
-    logging.basicConfig(format='%(asctime)s - %(pathname)s[line:%(lineno)d] - %(levelname)s: %(message)s',
-                        level=logging.DEBUG)
     os.environ["CUDA_VISIBLE_DEVICES"] = config.device
     config.processed_path = os.path.join(config.processed_path, config.dataset + '/')
     config.save_path = os.path.join(config.save_path, str(config.embedding_size), config.dataset)
@@ -69,6 +74,7 @@ def data_preparation(config: Namespace):
     query_path = os.path.join(config.processed_path, '{}_query.json'.format(config.dataset))
     asin_sample_path = config.processed_path + '{}_asin_sample.json'.format(config.dataset)
     word_dict_path = os.path.join(config.processed_path, '{}_word_dict.json'.format(config.dataset))
+    candidates_path = os.path.join(config.processed_path, '{}_candidates.json'.format(config.dataset))
 
     # train_df = pd.read_csv(train_path)
     # test_df = pd.read_csv(test_path)
@@ -76,9 +82,11 @@ def data_preparation(config: Namespace):
     train_df = full_df[full_df['filter'] == 'Train'].reset_index(drop=True)
     test_df = full_df[full_df['filter'] == 'Test'].reset_index(drop=True)
 
-    query_dict = json.load(open(query_path, 'r'))
-    asin_dict = json.load(open(asin_sample_path, 'r'))
-    word_dict = json.load(open(word_dict_path, 'r'))
+    query_dict = json.load(open(query_path, 'r')) if os.path.exists(query_path) else None
+    asin_dict = json.load(open(asin_sample_path, 'r')) if os.path.exists(asin_sample_path) else None
+    word_dict = json.load(open(word_dict_path, 'r')) if os.path.exists(word_dict_path) else None
+    candidates = json.load(open(candidates_path, 'r')) if os.path.exists(candidates_path) else None
+
     # word_dict = generate_word_dict(full_df)
 
-    return train_df, test_df, full_df, query_dict, asin_dict, word_dict
+    return train_df, test_df, full_df, query_dict, asin_dict, word_dict, candidates
