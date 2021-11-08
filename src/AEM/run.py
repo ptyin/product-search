@@ -79,15 +79,15 @@ def run(model_name: str):
         g = test(model, full_df, test_df, item_map, candidates, evaluate_neg, config)
         for test_df_by_num in g:
             test_dataset = AmazonDataset(test_df_by_num, users, item_map, query_max_length, user_bought_max_length,
-                                         len(word_dict) + 1, history, asin_dict, 'test', config.debug)
+                                         len(word_dict) + 1, history, 'test', config.debug)
             g.send(test_dataset)
 
         return
 
     train_dataset = AmazonDataset(train_df, users, item_map, query_max_length, user_bought_max_length,
-                                  len(word_dict)+1, history, asin_dict, 'train', config.debug, config.neg_sample_num)
+                                  len(word_dict)+1, history, 'train', config.debug, config.neg_sample_num)
     test_dataset = AmazonDataset(test_df, users, item_map, query_max_length, user_bought_max_length,
-                                 len(word_dict) + 1, history, asin_dict, 'test', config.debug)
+                                 len(word_dict) + 1, history, 'test', config.debug)
     train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=False,
                               num_workers=config.worker_num,
                               collate_fn=AmazonDataset.collate_fn
@@ -146,5 +146,9 @@ def run(model_name: str):
                 start_time, prepare_time, forward_time, step_time)
         time.sleep(0.1)
 
-    if not config.load:
-        torch.save(model.state_dict(), config.save_path)
+        if not config.load:
+            if epoch == config.epochs - 1:
+                save_path = os.path.join(config.save_path, '{}.pt'.format(config.save_str))
+            else:
+                save_path = os.path.join(config.save_path, '{}-{}.pt'.format(config.save_str, epoch))
+            torch.save(model.state_dict(), save_path)

@@ -82,7 +82,7 @@ if __name__ == '__main__':
     #             "Appliances",
     #             "Magazine_Subscriptions",
     #             "Software"]
-    datasets = ["Digital_Music",
+    datasets = ["Prime_Pantry",
                 "Luxury_Beauty",
                 "Musical_Instruments",
                 "Software"]

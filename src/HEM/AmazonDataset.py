@@ -9,14 +9,13 @@ from common import building_progress
 
 class AmazonDataset(Dataset):
     def __init__(self, df, users, item_map: dict, query_max_length,
-                 word_num, asin_dict,
+                 word_num,
                  mode, debug, neg_sample_num=1, sub_sampling_rate=0.):
         self.df = df
         self.users = users
         self.item_map = item_map
         self.query_max_length = query_max_length
         self.word_num = word_num
-        self.asin_dict = asin_dict
         self.mode = mode
         self.neg_sample_num = neg_sample_num
 

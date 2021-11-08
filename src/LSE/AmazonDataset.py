@@ -5,95 +5,72 @@ from torch.nn.utils.rnn import pad_sequence
 import pandas as pd
 import numpy as np
 
+from common import building_progress
+
 
 class AmazonDataset(Dataset):
-    def __init__(self, df, item_map: dict, word_num, asin_dict, window_size, mode, neg_sample_num=1):
+    def __init__(self, df, item_map: dict, query_max_length,
+                 word_num, window_size, mode, debug, neg_sample_num=1):
         self.df = df
         self.item_map = item_map
+        self.query_max_length = query_max_length
         self.word_num = word_num
-        self.asin_dict = asin_dict
         self.window_size = window_size
         self.mode = mode
         self.neg_sample_num = neg_sample_num
 
-        self.corpus = set(range(word_num))
-        # self.word_distribution = torch.zeros(word_num)
-        self.word_distribution = np.zeros(word_num)
+        self.all_items = torch.tensor(range(len(self.item_map))).cuda()
+        self.item_distribution = torch.ones(len(self.all_items), dtype=torch.bool).cuda()
         self.data = []
+
+        progress = building_progress(df, debug)
         if mode == 'train':
-            for _, series in self.df.iterrows():
+            for _, series in progress:
                 current_words = eval(series['reviewWords'])
                 padded_words = [0] * (window_size // 2) + current_words + [0] * (window_size // 2)
                 current_asin = series['asin']
                 current_item = self.item_map[current_asin]
-                current_neg_item = self.sample_neg_items(current_asin)
 
-                current_query_words = eval(series['queryWords'])
+                query = eval(series['queryWords'])
+                current_query_words = torch.zeros(self.query_max_length, dtype=torch.long)
+                current_query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+
                 for i, word in enumerate(current_words):
-                    self.word_distribution[word] += 1
                     word = torch.tensor(padded_words[i: i+self.window_size], dtype=torch.long)
-                    self.data.append((current_item, current_neg_item, current_query_words, word))
+                    self.data.append((current_item, current_query_words, word))
+        elif mode == 'test':
+            for _, series in progress:
+                current_asin = series['asin']
+                current_item = self.item_map[current_asin]
+                query = eval(series['queryWords'])
+                current_query_words = torch.zeros(self.query_max_length, dtype=torch.long)
+                current_query_words[:len(query)] = torch.tensor(query, dtype=torch.long)
+
+                self.data.append((current_item, current_query_words))
 
     def __len__(self):
-        if self.mode == 'train':
-            return len(self.data)
-        else:
-            return len(self.df)
+        return len(self.data)
 
     def __getitem__(self, index):
         if self.mode == 'train':
-            item, neg_items, query, word = self.data[index]
-            query_words = torch.tensor(query, dtype=torch.long)
+            item, query, word = self.data[index]
             # neg_words = torch.tensor(self.sample_neg_words(word), dtype=torch.long)
-            return item, word, neg_items, query_words
+            return item, word, query
         else:
-            series = self.df.loc[index]
-            item = self.item_map[series['asin']]
-            query = torch.tensor(eval(series['queryWords']), dtype=torch.long)
+            item, query = self.data[index]
             return item, query
 
-    def sample_neg_items(self, asin):
-        """ Take the also_view or buy_after_viewing as negative samples. """
-        # We tend to sample negative ones from the also_view and
-        # buy_after_viewing items, if don't have enough, we then
-        # randomly sample negative ones.
-
-        # -----------sample item-----------
-        # sample = self.asin_dict[asin]
-        # all_sample = sample['positive'] + sample['negative']
-        # neg_asin = np.random.choice(all_sample, self.neg_sample_num, replace=False, p=sample['prob'])
-        # negs = torch.zeros(neg_asin.shape, dtype=torch.long)
-        # for i, neg in enumerate(neg_asin):
-        #     if neg not in self.item_map:
-        #         neg_asin[i] = np.random.choice(list(set(self.item_map.keys()) - {asin}), 1, replace=False)
-        #     negs[i] = self.item_map[neg_asin[i]]
-
-        item = self.item_map[asin]
-        a = list(range(0, item)) + list(range(item + 1, len(self.item_map)))
-        negs = torch.tensor(np.random.choice(a, self.neg_sample_num, replace=False), dtype=torch.long).cuda()
-
-        return negs
-
-    def neg_candidates(self, item: torch.LongTensor):
-        a = list(range(0, item.item())) + list(range(item.item() + 1, len(self.item_map)))
-        candidates = torch.tensor(np.random.choice(a, 99, replace=False), dtype=torch.long).cuda()
-        return candidates
-
-    @staticmethod
-    def collate_fn(batch):
-        entities = []
-        query_words = []
-        for sample in batch:
-            entities.append(sample[:-1])
-            query_words.append(sample[-1])
-        entity_result = default_collate(entities)  # shape:(*, batch)
-        entity_result = list(map(lambda entity: entity.cuda(), entity_result))
-        query_result = pad_sequence(query_words, batch_first=True, padding_value=0).cuda()  # shape: (batch, seq)
-        return (*entity_result, query_result)
+    def sample_neg_items(self, items):
+        self.item_distribution[items] = False
+        masked_all_items = self.all_items.masked_select(self.item_distribution)
+        negs = np.random.randint(0, len(masked_all_items), self.neg_sample_num, dtype=np.long)
+        self.item_distribution[items] = True
+        return masked_all_items[negs]
 
     @staticmethod
     def init(full_df: pd.DataFrame):
         users = full_df['userID'].unique()
         items = full_df['asin'].unique()
         item_map = dict(zip(items, range(0, len(items))))
-        return users, item_map
+        query_max_length = max(map(lambda x: len(eval(x)), full_df['queryWords']))
+        return users, item_map, query_max_length

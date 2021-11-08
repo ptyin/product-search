@@ -9,7 +9,7 @@ from common import building_progress
 
 class AmazonDataset(Dataset):
     def __init__(self, df, users, item_map: dict, query_max_length, user_bought_max_length,
-                 word_num, history: dict, asin_dict, mode, debug, neg_sample_num=1):
+                 word_num, history: dict, mode, debug, neg_sample_num=1):
         self.df = df
         self.users = users
         self.item_map = item_map
@@ -18,7 +18,6 @@ class AmazonDataset(Dataset):
 
         self.word_num = word_num
         self.history = history
-        self.asin_dict = asin_dict
         self.mode = mode
         self.neg_sample_num = neg_sample_num
 

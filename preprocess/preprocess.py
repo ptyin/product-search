@@ -25,8 +25,8 @@ if __name__ == '__main__':
     parser.add_argument('--word_count', type=int, default=5, help="remove the words number less than count")
     parser.add_argument('--dataset', type=str,
                         # choices=('All_Beauty', 'Appliances', 'Magazine_Subscriptions', 'Software'),
-                        choices=("Digital_Music", "Luxury_Beauty", "Musical_Instruments", "Software"),
-                        default='Digital_Music')
+                        choices=("Prime_Pantry", "Luxury_Beauty", "Musical_Instruments", "Software"),
+                        default='Prime_Pantry')
     parser.add_argument('--data_path', type=str, default='/disk/yxk/data/cold_start/')
     parser.add_argument('--stop_file', type=str, default='./stopwords.txt')
     parser.add_argument('--processed_path', type=str, default='/disk/yxk/processed/cold_start/')

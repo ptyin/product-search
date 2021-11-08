@@ -33,8 +33,8 @@ if __name__ == '__main__':
     parser.add_argument('--processed_path', type=str, default='/disk/yxk/processed/cold_start/')
     parser.add_argument('--dataset', type=str,
                         # choices=('All_Beauty', 'Appliances', 'Magazine_Subscriptions', 'Software'),
-                        choices=("Digital_Music", "Luxury_Beauty", "Musical_Instruments", "Software"),
-                        default='Digital_Music')
+                        choices=("Prime_Pantry", "Luxury_Beauty", "Musical_Instruments", "Software"),
+                        default='Prime_Pantry')
     config = parser.parse_args()
     full_path = os.path.join(config.processed_path, config.dataset, "{}_full.csv".format(config.dataset))
     full_df = pd.read_csv(full_path)

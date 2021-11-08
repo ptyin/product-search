@@ -9,7 +9,7 @@ import logging
 def parser_add_data_arguments(parser: ArgumentParser):
     # ------------------------------------Dataset Parameters------------------------------------
     # parser.add_argument('--dataset',
-    #                     default='Musical_Instruments',
+    #                     default='Automotive',
     #                     choices=("Automotive",
     #                              "Cell_Phones_and_Accessories",
     #                              "Clothing_Shoes_and_Jewelry",
@@ -18,9 +18,9 @@ def parser_add_data_arguments(parser: ArgumentParser):
     #                              "Toys_and_Games"),
     #                     help='name of the dataset')
     parser.add_argument('--dataset',
-                        default='Luxury_Beauty',
+                        default='Musical_Instruments',
                         # choices=('All_Beauty', 'Appliances', 'Magazine_Subscriptions', 'Software'),
-                        choices=("Digital_Music", "Luxury_Beauty", "Musical_Instruments", "Software"),
+                        choices=("Prime_Pantry", "Luxury_Beauty", "Musical_Instruments", "Software"),
                         help='name of the dataset')
     parser.add_argument('--processed_path',
                         default='/disk/yxk/processed/cold_start/',
@@ -65,7 +65,7 @@ def data_preparation(config: Namespace):
     config.save_path = os.path.join(config.save_path, str(config.embedding_size), config.dataset)
     if not os.path.exists(config.save_path):
         os.makedirs(config.save_path)
-    config.save_path = os.path.join(config.save_path, '{}.pt'.format(config.save_str))
+    # config.save_path = os.path.join(config.save_path, '{}.pt'.format(config.save_str))
 
     # train_path = os.path.join(config.processed_path, "{}_train.csv".format(config.dataset))
     # test_path = os.path.join(config.processed_path, "{}_test.csv".format(config.dataset))

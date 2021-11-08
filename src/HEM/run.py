@@ -64,14 +64,14 @@ def run():
         g = test(model, full_df, test_df, item_map, candidates, evaluate_neg, config)
         for test_df_by_num in g:
             test_dataset = AmazonDataset(test_df_by_num, users, item_map, query_max_length, len(word_dict) + 1,
-                                         asin_dict, 'test', config.debug)
+                                         'test', config.debug)
             g.send(test_dataset)
 
         return
 
-    train_dataset = AmazonDataset(train_df, users, item_map, query_max_length, len(word_dict)+1, asin_dict, 'train',
+    train_dataset = AmazonDataset(train_df, users, item_map, query_max_length, len(word_dict)+1, 'train',
                                   config.debug, config.neg_sample_num, config.sub_sampling_rate)
-    test_dataset = AmazonDataset(test_df, users, item_map, query_max_length, len(word_dict) + 1, asin_dict, 'test',
+    test_dataset = AmazonDataset(test_df, users, item_map, query_max_length, len(word_dict) + 1, 'test',
                                  config.debug)
 
     # train_loader = DataLoader(train_dataset, drop_last=True, batch_size=config.batch_size, shuffle=True,
@@ -119,15 +119,19 @@ def run():
 
             temp_time = time.time()
 
-        # Mrr, Hr, Ndcg = evaluate(model, test_dataset,
-        #                          testing_progress(test_loader, epoch, config.epochs, config.debug),
-        #                          10)
         Mrr, Hr, Ndcg = evaluate(model, test_dataset,
                                  testing_progress(test_loader, epoch, config.epochs, config.debug),
-                                 10) if epoch == config.epochs - 1 else (-1, -1, -1)
+                                 10)
+        # Mrr, Hr, Ndcg = evaluate(model, test_dataset,
+        #                          testing_progress(test_loader, epoch, config.epochs, config.debug),
+        #                          10) if epoch == config.epochs - 1 else (-1, -1, -1)
         display(epoch, config.epochs, epoch_loss / step, Hr, Mrr, Ndcg,
                 start_time, prepare_time, forward_time, step_time)
         time.sleep(0.1)
 
-    if not config.load:
-        torch.save(model.state_dict(), config.save_path)
+        if not config.load:
+            if epoch == config.epochs - 1:
+                save_path = os.path.join(config.save_path, '{}.pt'.format(config.save_str))
+            else:
+                save_path = os.path.join(config.save_path, '{}-{}.pt'.format(config.save_str, epoch))
+            torch.save(model.state_dict(), save_path)
