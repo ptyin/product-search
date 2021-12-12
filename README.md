@@ -1,47 +1,44 @@
 # Product Search
 
-## 文件结构
+> SOTA Product Search models implementation in PyTorch .
 
-- src: 模型代码
-    - common: 通用组件，包括一些loss和metrics计算方法
-    - HEM: HEM和QEM代码
-        - **AmazonDataset.py**: 数据集文件转模型数据输入
-        - **evaluate.py**: 测试
-        - **run.py**: 模型实验入口
-        - **Model.py**: 模型代码
-    - AEM: AEM和ZAM代码
-        - ...标准文件结构，含义同上。
-    - LSE: LSE代码
-        - ...
-    - MetaSearch: 元学习方法
-        - ...
-    - GraphSearch: CIKM
-        - ...
-    - QL: QL和UQL代码
-        - ...
-    - TranSearchText: 单一文本模态模型代码
-        - ...
-- preprocess 数据预处理
-    - preprocess.py: 预处理入口
-    - neg_candidate: 负采样
-    - doc2vec: 将review和query整理TranSearch的文档输入
-    - word2vec: 生成w2v，目前无模型依赖，可用于实验
-    - core: 预处理核心组件包，目录下文件顾名思义
-    - transform @Deprecated: 可将csv格式数据输入转换为ESRT模型输入
-- utils @Deprecated
-- experiment_cf
-    - CIKM实验相关，没太整理，建议重新写
-- experiment_cold_start
-    - metrics_bought: 根据用户购买量分类统计metrics
-    - statistics: 统计数据集用户物品信息
+## Implemented Models
 
-## 数据预处理说明
+> - [LSE] Christophe Van Gysel, Maarten de Rijke, and Evangelos Kanoulas. 2016. Learning Latent Vector Spaces for Product Search. In Proceedings of the 25th ACM International on Conference on Information and Knowledge Management. ACM, 165–174
+> - [HEM] Qingyao Ai, Yongfeng Zhang, Keping Bi, Xu Chen, and W. Bruce Croft. 2017. Learning a Hierarchical Embedding Model for Personalized Product Search. In Proceedings of the 40th International ACM SIGIR Conference on Research and Development in Information Retrieval. ACM, 645–654.
+> - [TranSearch] Yangyang Guo, Zhiyong Cheng, Liqiang Nie, Xin-Shun Xu, and Mohan Kankanhalli. 2018. Multi-Modal Preference Modeling for Product Search. In Proceedings of the 26th ACM International Conference on Multimedia. ACM, 1865–1873.
+> - [AEM/ZAM] Qingyao Ai, Daniel N. Hill, S. V. N. Vishwanathan, and W. Bruce Croft. 2019. A Zero Attention Model for Personalized Product Search. In Proceedings of the 28th ACM International Conference on Information and Knowledge Management. ACM, 379–388.
+
+## File Structure
+
+- src: Sources root
+    - common: Common components，including computations of common loss and metrics
+    - HEM: Hierarchical Embedding Model
+        - **AmazonDataset.py**: Dataset input to model feed
+        - **evaluate.py**: Model testing
+        - **run.py**: Model entry
+        - **Model.py**: Model implementation
+    - AEM: Attention Embedding Model & Zero Attention Embedding Model
+    - LSE: Latent Semantic Entity
+    - MetaSearch: A model with meta learning methods (not published) 
+    - GraphSearch:  A model with graph neural network methods (not published) 
+    - QL: QL & UQL
+    - TranSearchText: Transearch with only text modality
+- preprocess: Data preprocess directory
+    - preprocess.py: Preprocess entry
+    - neg_candidate: Negative sampling
+    - doc2vec: Convert queries and reviews to doc vectors
+    - word2vec: Convert word corpus to word vectors
+    - core
+    - transform @Deprecated: transform CSV formatted dataset file to [ESRT](https://github.com/utahIRlab/ESRT) formatted dataset files.
+
+## Preprocess
 ```shell script
 cd preprocess/
 python preprocess.py --data_path <原数据存储路径> --dataset <数据集名> --processed_path <预处理后数据集文件路径> --unprocessed_path <只转换csv格式而不预处文件路径>
 ```
 
-## 训练说明
+## Model training
 ```shell script
 cd src/
 python main.py <模型名> [--<参数键> <值>]

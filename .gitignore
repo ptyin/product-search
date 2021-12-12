@@ -1,3 +1,5 @@
-/src/GraphSearch_v1/
-/src/GraphSearch_v2/
+/.idea/
+**/.DS_Store
+/experiment_*/
+/utils/
 /result/
