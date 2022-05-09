@@ -49,7 +49,7 @@ class Model(nn.Module):
                                                                       head_num=head_num),
                                                Mean(dim=1),
                                                nn.Linear(word_embedding_size, entity_embedding_size))
-
+        self.lstm = nn.LSTM(input_size=word_embedding_size, hidden_size=word_embedding_size, batch_first=True)
         self.word_embedding_layer = nn.Embedding(word_num, word_embedding_size, padding_idx=0)
         self.entity_embedding_layer = nn.Embedding(entity_num, entity_embedding_size)
 
