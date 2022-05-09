@@ -14,14 +14,14 @@
 - src: Sources root
     - common: Common components，including computations of common loss and metrics
     - HEM: Hierarchical Embedding Model
-        - **AmazonDataset.py**: Dataset input to model feed
-        - **evaluate.py**: Model testing
-        - **run.py**: Model entry
-        - **Model.py**: Model implementation
+        - AmazonDataset.py: Dataset input to model feed
+        - evaluate.py: Model testing
+        - run.py: Model entry
+        - Model.py: Model implementation
     - AEM: Attention Embedding Model & Zero Attention Embedding Model
     - LSE: Latent Semantic Entity
     - MetaSearch: A model with meta learning methods (not published) 
-    - GraphSearch:  A model with graph neural network methods (not published) 
+    - **GraphSearch**:  A model with hierarchical heterogeneous graph neural network methods (**HHGNN**, not published) 
     - QL: QL & UQL
     - TranSearchText: Transearch with only text modality
 - preprocess: Data preprocess directory
